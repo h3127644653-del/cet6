@@ -49,6 +49,7 @@
   #hud{position:fixed;inset:0;z-index:6;pointer-events:none;font-size:clamp(10px,1.1vw,15px);transition:opacity .2s}
   .hudRow{position:absolute;left:0;right:0;top:0;display:flex;align-items:flex-start;gap:.5em;
     padding:calc(clamp(6px,.9vw,14px) + var(--safe-t)) clamp(6px,.9vw,14px) 0}
+  #hud.wx .hudRow{padding-top:calc(var(--wxh,72px) + 6px)}
   .pill{
     background:rgba(255,255,255,.93);border-radius:999px;padding:.4em .75em;
     box-shadow:0 4px 14px rgba(16,23,51,.2);display:flex;align-items:center;gap:.4em;
@@ -104,11 +105,27 @@
   #toast.good{background:rgba(22,124,72,.95)}
   #toast.bad{background:rgba(186,38,58,.95)}
 
+  /* ---------------- 微信/QQ 内置浏览器引导条 ---------------- */
+  #wxbar{position:fixed;left:0;right:0;top:0;z-index:60;display:none;
+    padding:calc(9px + var(--safe-t)) 12px 9px;
+    background:linear-gradient(180deg,#43290a,#1c1206);
+    color:#ffd75e;font-size:clamp(11px,3.1vw,14px);line-height:1.55;font-weight:700;
+    box-shadow:0 6px 20px rgba(0,0,0,.45)}
+  #wxbar.show{display:flex;gap:.6em;align-items:flex-start}
+  #wxbar .txt{flex:1;min-width:0}
+  #wxbar b{color:#fff}
+  #wxbar .k{display:inline-block;background:rgba(255,255,255,.18);border-radius:6px;
+    padding:0 .35em;margin:0 .1em;color:#fff}
+  #wxbar button{flex:0 0 auto;border:0;background:rgba(255,255,255,.16);color:#fff;
+    border-radius:10px;padding:.45em .8em;font-weight:800;font-size:clamp(11px,2.9vw,13px);
+    font-family:inherit;cursor:pointer}
+
   /* ---------------- 弹层 ---------------- */
   #overlay{position:fixed;inset:0;z-index:20;display:none;place-items:center;
     padding:calc(clamp(8px,1.6vw,26px) + var(--safe-t)) clamp(8px,1.6vw,26px) calc(clamp(8px,1.6vw,26px) + var(--safe-b));
     background:linear-gradient(180deg,rgba(9,14,34,.74),rgba(9,14,34,.88));overflow:auto;touch-action:pan-y}
   #overlay.show{display:grid}
+  #overlay.wx{padding-top:calc(var(--wxh,72px) + 10px)}
   .card{background:#fff;border-radius:var(--radius);box-shadow:0 24px 60px rgba(0,0,0,.42);
     width:min(900px,100%);max-height:100%;overflow:auto;padding:clamp(14px,2.2vw,30px);touch-action:pan-y}
   .card h1{margin:0 0 .15em;font-size:clamp(20px,3vw,38px)}
@@ -237,6 +254,11 @@
 
     <div id="toast"></div>
     <div id="overlay"><div class="card" id="card"></div></div>
+
+    <div id="wxbar">
+      <div class="txt" id="wxbarTxt"></div>
+      <button id="wxbarX">知道了</button>
+    </div>
 
     <div id="touch">
       <div class="tbtn" id="tLeft"  data-zone="left">◀</div>
@@ -4523,9 +4545,45 @@ function toggleFullscreen(){
 var triedAutoFullscreen = false;
 function maybeFullscreen(){
   if(!IS_MOBILE || triedAutoFullscreen) return;
-  triedAutoFullscreen = true;
   if(inFullscreen()){ lockLandscape(); return; }
-  toggleFullscreen();
+  try{
+    var el = document.documentElement;
+    if(el.requestFullscreen){
+      el.requestFullscreen().then(function(){
+        triedAutoFullscreen = true;
+        lockLandscape();
+      }).catch(function(){
+        /* 被拒绝（比如微信）就不锁定，下次点击再试一次 */
+      });
+    }else if(el.webkitRequestFullscreen){
+      el.webkitRequestFullscreen();
+      triedAutoFullscreen = true;
+      lockLandscape();
+    }
+  }catch(e){}
+}
+
+/* ---------- 微信 / QQ 内置浏览器引导条 ---------- */
+var UA_STR = navigator.userAgent || '';
+var IN_WECHAT = /MicroMessenger/i.test(UA_STR);
+var IN_QQ = (/\bQQ\/[\d.]+/i.test(UA_STR) || /QQBrowser/i.test(UA_STR)) && !/MicroMessenger/i.test(UA_STR);
+var IS_IOS = /iPad|iPhone|iPod/.test(UA_STR) ||
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function showInAppTip(){
+  var bar = $('wxbar');
+  if(!bar || !IS_MOBILE || !(IN_WECHAT || IN_QQ)) return;
+  var who = IN_WECHAT ? '微信' : 'QQ';
+  var how = IS_IOS
+    ? '点右上角 <span class="k">⋯</span> → <b>在 Safari 中打开</b>'
+    : '点右上角 <span class="k">⋯</span> → <b>在浏览器打开</b>';
+  $('wxbarTxt').innerHTML =
+    '⚠️ ' + who + '内置浏览器不支持全屏，也没有「添加到主屏幕」。<br>' +
+    '想要全屏横屏玩：' + how + '，再点浏览器菜单里的「添加到主屏幕」。';
+  bar.classList.add('show');
+  var h = bar.offsetHeight || 72;
+  document.documentElement.style.setProperty('--wxh', h + 'px');
+  $('hud').classList.add('wx');
+  $('overlay').classList.add('wx');
 }
 
 /* ============================ HUD 绑定 ============================ */
@@ -4538,6 +4596,11 @@ $('btnSpeak').onclick = function(){
   if(lv && lv.gates[G.activeGate]) speak(lv.gates[G.activeGate].word.w);
 };
 $('btnFull').onclick = toggleFullscreen;
+$('wxbarX').onclick = function(){
+  $('wxbar').classList.remove('show');
+  $('hud').classList.remove('wx');
+  $('overlay').classList.remove('wx');
+};
 $('btnSound').onclick = function(){
   save.sound = !save.sound;
   save.persist();
@@ -4555,6 +4618,7 @@ if('speechSynthesis' in window){
 $('btnSound').classList.toggle('off', !save.sound);
 G.state = 'menu';
 renderHearts();
+showInAppTip();
 
 var hashId = String(location.hash || '').replace('#','').toUpperCase();
 var hashIdx = -1;
