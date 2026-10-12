@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>词库管理 · 星火六级闯关</title>
+<style>
+  :root{
+    --ink:#101733; --ink2:#5a6484; --line:#e4e8f2; --blue:#3f7cf3;
+    --gold:#f5b21f; --green:#2fbf71; --red:#ef4b5b;
+    --font:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:var(--font);color:var(--ink);background:#f4f6fb}
+  body{display:flex;flex-direction:column}
+  header{background:#fff;border-bottom:1px solid var(--line);padding:12px 18px;
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(16,23,51,.05)}
+  header h1{font-size:17px;margin:0;font-weight:900}
+  header .sub{font-size:12px;color:var(--ink2)}
+  .grow{flex:1}
+  button{font-family:inherit;font-weight:700;border:0;cursor:pointer;border-radius:10px;
+    padding:.55em 1em;font-size:13px;background:#eef2fb;color:#243059;transition:.15s}
+  button:hover{filter:brightness(.97)}
+  button.primary{background:var(--blue);color:#fff;box-shadow:0 6px 16px rgba(63,124,243,.3)}
+  button.gold{background:linear-gradient(160deg,#ffc63d,#f08c00);color:#3b2500}
+  button.danger{background:#fdeef0;color:#b8203a}
+  button.ghost{background:#fff;border:1px solid var(--line)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .bar{background:#fff;border-bottom:1px solid var(--line);padding:10px 18px;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+  .bar input[type=search],.bar input[type=text],.bar select{
+    font-family:inherit;font-size:13px;padding:.45em .7em;border:1px solid var(--line);
+    border-radius:9px;outline:none;background:#fff;color:var(--ink)}
+  .bar input[type=search]{min-width:220px}
+  .bar input:focus,.bar select:focus{border-color:#a9c2ff;box-shadow:0 0 0 3px rgba(63,124,243,.12)}
+  .stat{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2)}
+  .stat b{color:var(--ink);font-size:14px}
+  .tag{display:inline-block;border-radius:999px;padding:.1em .55em;font-size:11px;font-weight:800}
+  .t1{background:#e3f7ea;color:#17794a}
+  .t2{background:#fff3d9;color:#9a6a00}
+  .t3{background:#ffe6e9;color:#b8203a}
+  main{flex:1;overflow:auto;padding:14px 18px 60px}
+  table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;
+    border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  th{position:sticky;top:0;background:#f8faff;z-index:2;text-align:left;font-size:12px;
+    color:var(--ink2);font-weight:800;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td input,td select{width:100%;font-family:inherit;font-size:13px;border:1px solid transparent;
+    background:transparent;border-radius:7px;padding:.35em .45em;color:var(--ink);outline:none}
+  td input:hover,td select:hover{background:#f7f9ff;border-color:var(--line)}
+  td input:focus,td select:focus{background:#fff;border-color:#a9c2ff;box-shadow:0 0 0 3px rgba(63,124,243,.12)}
+  td.w input{font-weight:800;color:#16204a}
+  td.g input{font-weight:700}
+  td.m input{color:var(--ink2)}
+  .n{color:#9aa4c2;font-size:12px;text-align:right}
+  .empty{padding:60px 20px;text-align:center;color:var(--ink2)}
+  .empty h2{margin:0 0 .4em;font-size:18px;color:var(--ink)}
+  .empty p{margin:.3em 0;font-size:13px;line-height:1.7}
+  .drop{border:2px dashed #c9d6f5;border-radius:16px;background:#fff;padding:36px 20px;
+    text-align:center;max-width:640px;margin:40px auto}
+  .drop.over{border-color:var(--blue);background:#f2f6ff}
+  .pager{display:flex;align-items:center;gap:8px;justify-content:center;padding:14px 0;font-size:13px;color:var(--ink2)}
+  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(10px);
+    background:rgba(16,23,51,.92);color:#fff;padding:.6em 1.1em;border-radius:12px;
+    font-size:13px;font-weight:700;opacity:0;transition:.25s;pointer-events:none;z-index:99}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:rgba(186,38,58,.95)}
+  #toast.good{background:rgba(22,124,72,.95)}
+  details{margin-top:10px}
+  summary{cursor:pointer;font-size:13px;font-weight:800;color:var(--blue)}
+  .hint{font-size:12px;color:var(--ink2);line-height:1.8;background:#fff;border:1px solid var(--line);
+    border-radius:12px;padding:10px 14px;margin-top:8px}
+  code{background:#eef2fb;border-radius:5px;padding:.1em .4em;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>词库管理 · 星火六级闯关</h1>
+    <div class="sub">改完导出 words.json，上传覆盖到游戏目录即可（不用改代码）</div>
+  </div>
+  <div class="grow"></div>
+  <button class="ghost" id="btnOpen">📂 打开 words.json</button>
+  <button class="ghost" id="btnUrl">🌐 从网址加载</button>
+  <button class="ghost" id="btnNew">✨ 新建空词库</button>
+  <button class="primary" id="btnExport">⬇ 导出 words.json</button>
+  <button class="ghost" id="btnBackup">💾 备份全部</button>
+  <button class="gold" id="btnPublish" title="需要先在 config.js 里填 Supabase">☁ 发布到云</button>
+  <button class="ghost" id="btnCodes" title="生成/查看激活码">🔑 激活码</button>
+</header>
+
+<div class="bar" id="bar" style="display:none">
+  <input type="search" id="q" placeholder="搜索单词 / 释义…">
+  <select id="fTier">
+    <option value="">全部难度</option>
+    <option value="1">只显示 易</option>
+    <option value="2">只显示 中</option>
+    <option value="3">只显示 难</option>
+  </select>
+  <select id="fChapter"></select>
+  <button id="btnAdd">＋ 新增单词</button>
+  <button id="btnRebuild" title="按难度重新洗牌并重新分关">🎲 重排关卡</button>
+  <button class="ghost" id="btnUndo">↶ 撤销</button>
+  <div class="grow"></div>
+  <div class="stat" id="stat"></div>
+</div>
+
+<main id="main">
+  <div class="drop" id="drop">
+    <h2>把 words.json 拖进来，或点下面的按钮</h2>
+    <p>· 打开 <code>words.json</code> —— 就是游戏目录里那份词表</p>
+    <p>· 也可以直接「从网址加载」线上那份</p>
+    <p style="margin-top:1em">
+      <button class="primary" id="btnOpen2">📂 选择 words.json</button>
+      <button class="ghost" id="btnUrl2">🌐 从网址加载</button>
+    </p>
+    <details>
+      <summary>还没有词表？</summary>
+      <div class="hint">
+        点「新建空词库」从零开始，或者把现有 words.json 拖进来改。<br>
+        每行字段：<code>w</code> 单词、<code>ph</code> 音标、<code>g</code> 方块短释义（≤13 字，可用「；」分两行）、
+        <code>m</code> 完整释义、<code>t</code> 难度（1易/2中/3难）、<code>f</code> 考频、<code>r</code> 词频排名。
+      </div>
+    </details>
+  </div>
+  <div id="tableView" style="display:none">
+    <table>
+      <thead><tr>
+        <th style="width:44px">#</th>
+        <th style="width:15%">单词</th>
+        <th style="width:14%">音标</th>
+        <th style="width:16%">方块短释义</th>
+        <th>完整释义</th>
+        <th style="width:74px">难度</th>
+        <th style="width:74px">考频</th>
+        <th style="width:70px">操作</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="pager">
+      <button class="ghost" id="prev">上一页</button>
+      <span id="pageInfo"></span>
+      <button class="ghost" id="next">下一页</button>
+      <select id="pageSize">
+        <option value="50">每页 50</option>
+        <option value="100" selected>每页 100</option>
+        <option value="300">每页 300</option>
+        <option value="99999">全部</option>
+      </select>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+<input type="file" id="filePick" accept=".json,application/json" style="display:none">
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+
+/* ---------------- 状态 ---------------- */
+var S = {
+  data: null,          /* {version, perLevel, chapterSize, words:[...]} */
+  view: [],            /* 当前筛选后的索引数组 */
+  page: 0,
+  pageSize: 100,
+  undo: null,
+  fileName: 'words.json'
+};
+var TIER_NAME = {1:'易', 2:'中', 3:'难'};
+
+function toast(msg, kind){
+  var el = $('toast');
+  el.className = 'show ' + (kind || '');
+  el.textContent = msg;
+  clearTimeout(el._t);
+  el._t = setTimeout(function(){ el.className = ''; }, 2200);
+}
+function snapshot(){
+  if(!S.data) return;
+  S.undo = JSON.stringify(S.data);
+  $('btnUndo').disabled = false;
+}
+
+/* ---------------- 载入 / 导出 ---------------- */
+function normalize(d){
+  if(!d) return null;
+  var words = d.words || d.WORDS || [];
+  if(!Array.isArray(words)) return null;
+  return {
+    version: d.version || 3,
+    updated: d.updated || new Date().toISOString().slice(0,10),
+    source: d.source || '',
+    perLevel: d.perLevel || d.PER_LEVEL || 20,
+    chapterSize: d.chapterSize || d.CHAPTER_SIZE || 10,
+    words: words.map(function(w){
+      return {
+        w: String(w.w || '').trim(),
+        ph: String(w.ph || ''),
+        f: Number(w.f || 0),
+        t: Number(w.t || 2),
+        r: Number(w.r || 0),
+        g: String(w.g || ''),
+        m: String(w.m || '')
+      };
+    })
+  };
+}
+function loadData(d, name){
+  var n = normalize(d);
+  if(!n || !n.words.length){ toast('这个文件里没有单词数据', 'bad'); return; }
+  S.data = n;
+  if(name) S.fileName = name;
+  S.page = 0; S.undo = null;
+  $('drop').style.display = 'none';
+  $('tableView').style.display = '';
+  $('bar').style.display = '';
+  buildChapterFilter();
+  refresh();
+  toast('已载入 ' + n.words.length + ' 个单词');
+}
+function readFile(file){
+  var r = new FileReader();
+  r.onload = function(){
+    try{ loadData(JSON.parse(r.result), file.name); }
+    catch(e){ toast('JSON 解析失败：' + e.message, 'bad'); }
+  };
+  r.readAsText(file, 'utf-8');
+}
+function download(text, filename){
+  var blob = new Blob([text], {type:'application/json;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 200);
+}
+
+/* ---------------- 统计 / 筛选 ---------------- */
+function stats(){
+  var w = S.data ? S.data.words : [];
+  var c = {1:0,2:0,3:0};
+  w.forEach(function(x){ c[x.t] = (c[x.t]||0)+1; });
+  var per = S.data ? S.data.perLevel : 20;
+  var cs = S.data ? S.data.chapterSize : 10;
+  var lv = Math.floor(w.length/per);
+  return {
+    total: w.length, easy: c[1]||0, mid: c[2]||0, hard: c[3]||0,
+    levels: lv, chapters: Math.ceil(lv/cs)
+  };
+}
+function renderStat(){
+  var s = stats();
+  $('stat').innerHTML =
+    '共 <b>' + s.total + '</b> 词 · ' + s.levels + ' 关 / ' + s.chapters + ' 章　' +
+    '<span class="tag t1">易' + s.easy + '</span> ' +
+    '<span class="tag t2">中' + s.mid + '</span> ' +
+    '<span class="tag t3">难' + s.hard + '</span>' +
+    (S.undo ? '　<span style="color:#b8203a">● 有未导出的修改</span>' : '');
+}
+function buildChapterFilter(){
+  var sel = $('fChapter');
+  var per = S.data.perLevel, cs = S.data.chapterSize;
+  var lv = Math.floor(S.data.words.length / per);
+  var ch = Math.ceil(lv / cs);
+  var html = '<option value="">全部关卡</option>';
+  for(var i=0;i<lv;i++){
+    var c = Math.floor(i/cs)+1;
+    html += '<option value="' + i + '">' + c + '-' + (i%cs+1) + '（第 ' + (i*per+1) + '–' + ((i+1)*per) + ' 词）</option>';
+  }
+  sel.innerHTML = html;
+}
+function refresh(){
+  if(!S.data) return;
+  var q = $('q').value.trim().toLowerCase();
+  var ft = $('fTier').value;
+  var fc = $('fChapter').value;
+  var per = S.data.perLevel;
+  var range = null;
+  if(fc !== ''){ var i0 = +fc; range = [i0*per, (i0+1)*per]; }
+  S.view = [];
+  S.data.words.forEach(function(w, i){
+    if(ft && String(w.t) !== ft) return;
+    if(range && (i < range[0] || i >= range[1])) return;
+    if(q && (w.w.toLowerCase().indexOf(q) < 0) &&
+       (w.g.indexOf(q) < 0) && (w.m.indexOf(q) < 0)) return;
+    S.view.push(i);
+  });
+  renderStat();
+  renderTable();
+}
+function renderTable(){
+  var ps = S.pageSize;
+  var maxPage = Math.max(0, Math.ceil(S.view.length / ps) - 1);
+  if(S.page > maxPage) S.page = maxPage;
+  var from = S.page * ps, to = Math.min(S.view.length, from + ps);
+  var html = '';
+  for(var k=from;k<to;k++){
+    var i = S.view[k];
+    var w = S.data.words[i];
+    html += '<tr data-i="' + i + '">' +
+      '<td class="n">' + (i+1) + '</td>' +
+      '<td class="w"><input data-f="w" value="' + esc(w.w) + '" spellcheck="false"></td>' +
+      '<td><input data-f="ph" value="' + esc(w.ph) + '" spellcheck="false"></td>' +
+      '<td class="g"><input data-f="g" value="' + esc(w.g) + '"></td>' +
+      '<td class="m"><input data-f="m" value="' + esc(w.m) + '"></td>' +
+      '<td><select data-f="t">' +
+        [1,2,3].map(function(t){ return '<option value="'+t+'"'+(w.t===t?' selected':'')+'>'+TIER_NAME[t]+'</option>'; }).join('') +
+      '</select></td>' +
+      '<td><input data-f="f" type="number" min="0" value="' + (w.f||0) + '"></td>' +
+      '<td><button class="danger" data-del="1" title="删除">删</button></td>' +
+    '</tr>';
+  }
+  $('tbody').innerHTML = html || '<tr><td colspan="8" style="padding:30px;text-align:center;color:#8a94b4">没有匹配的单词</td></tr>';
+  $('pageInfo').textContent = (S.view.length ? (from+1) : 0) + '–' + to + ' / ' + S.view.length;
+}
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ---------------- 编辑 ---------------- */
+$('tbody').addEventListener('input', function(e){
+  var el = e.target, f = el.getAttribute('data-f');
+  if(!f) return;
+  var tr = el.closest('tr'), i = +tr.getAttribute('data-i');
+  var w = S.data.words[i];
+  snapshot();
+  if(f === 't' || f === 'f') w[f] = Number(el.value) || 0;
+  else w[f] = el.value;
+  renderStat();
+});
+$('tbody').addEventListener('change', function(e){
+  var el = e.target, f = el.getAttribute('data-f');
+  if(f === 't') refresh();
+});
+$('tbody').addEventListener('click', function(e){
+  var b = e.target.closest('[data-del]');
+  if(!b) return;
+  var tr = b.closest('tr'), i = +tr.getAttribute('data-i');
+  var w = S.data.words[i];
+  if(!confirm('删除单词「' + w.w + '」？')) return;
+  snapshot();
+  S.data.words.splice(i, 1);
+  buildChapterFilter();
+  refresh();
+});
+
+/* ---------------- 工具按钮 ---------------- */
+$('btnAdd').onclick = function(){
+  snapshot();
+  var at = S.view.length ? S.view[S.view.length-1] + 1 : S.data.words.length;
+  S.data.words.splice(at, 0, {w:'', ph:'', f:0, t:2, r:0, g:'', m:''});
+  buildChapterFilter();
+  refresh();
+  S.page = Math.floor((S.view.indexOf(at)) / S.pageSize);
+  renderTable();
+  toast('已在末尾插入一行，填好单词后记得导出');
+};
+$('btnUndo').onclick = function(){
+  if(!S.undo) return;
+  S.data = JSON.parse(S.undo);
+  S.undo = null;
+  $('btnUndo').disabled = true;
+  buildChapterFilter();
+  refresh();
+  toast('已撤销到上一次修改前');
+};
+$('btnRebuild').onclick = function(){
+  if(!confirm('会按「难度」把词重新分成 5 段，每关从各段取 4 个（每关 20 词）。\n单词本身不会丢，只是顺序会变。继续？')) return;
+  snapshot();
+  var per = S.data.perLevel, bands = 5, perBand = per / bands;
+  var byTier = {1:[], 2:[], 3:[]};
+  S.data.words.forEach(function(w){ (byTier[w.t] || byTier[2]).push(w); });
+  /* 难度不够 3 档时按 r/f 再细分 */
+  var sorted = S.data.words.slice().sort(function(a, b){
+    var ka = a.f ? -a.f : (a.r || 999999);
+    var kb = b.f ? -b.f : (b.r || 999999);
+    return ka - kb;
+  });
+  var size = Math.floor(sorted.length / bands);
+  var segs = [];
+  for(var b=0;b<bands;b++){
+    segs.push(sorted.slice(b*size, b===bands-1 ? sorted.length : (b+1)*size));
+  }
+  var out = [];
+  var levels = Math.floor(size / perBand);
+  for(var L=0;L<levels;L++){
+    for(var s2=0;s2<bands;s2++){
+      for(var k=0;k<perBand;k++) out.push(segs[s2][L*perBand+k]);
+    }
+  }
+  S.data.words = out;
+  buildChapterFilter();
+  refresh();
+  toast('已重排为 ' + levels + ' 关，每关 ' + per + ' 词');
+};
+
+/* ---------------- 导入 / 导出 ---------------- */
+$('btnExport').onclick = function(){
+  if(!S.data) return;
+  S.data.updated = new Date().toISOString().slice(0,10);
+  var json = JSON.stringify(S.data);
+  download(json, 'words.json');
+  S.undo = null; $('btnUndo').disabled = true;
+  renderStat();
+  toast('已导出 words.json（' + S.data.words.length + ' 词），上传覆盖到游戏目录即可');
+};
+$('btnBackup').onclick = function(){
+  if(!S.data) return;
+  download(JSON.stringify(S.data, null, 1), 'words-backup-' + new Date().toISOString().slice(0,10) + '.json');
+  toast('已导出备份（带缩进，方便用记事本看）');
+};
+function openPicker(){ $('filePick').click(); }
+$('btnOpen').onclick = openPicker;
+$('btnOpen2').onclick = openPicker;
+$('filePick').onchange = function(e){
+  if(e.target.files && e.target.files[0]) readFile(e.target.files[0]);
+  e.target.value = '';
+};
+function loadFromUrl(){
+  var def = 'https://h3127644653-del.github.io/cet6/words.json';
+  var u = prompt('词库网址（默认是线上那份）：', def);
+  if(!u) return;
+  fetch(u.indexOf('://') > 0 ? u : ('https://' + u), {cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(d){ loadData(d, 'words.json'); })
+    .catch(function(e){ toast('加载失败：' + e.message, 'bad'); });
+}
+$('btnUrl').onclick = loadFromUrl;
+$('btnUrl2').onclick = loadFromUrl;
+$('btnNew').onclick = function(){
+  if(!confirm('新建空词库？当前未导出的修改会丢失。')) return;
+  loadData({version:3, perLevel:20, chapterSize:10, words:[
+    {w:'example', ph:'ɪɡˈzɑːmpl', f:0, t:1, r:0, g:'例子', m:'n. 例子，实例'}
+  ]}, 'words.json');
+};
+
+/* 拖拽 */
+var drop = $('drop');
+['dragenter','dragover'].forEach(function(ev){
+  document.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); });
+});
+['dragleave','drop'].forEach(function(ev){
+  document.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('over'); });
+});
+document.addEventListener('drop', function(e){
+  if(e.dataTransfer.files && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+
+/* ---------------- 发布到 Supabase ---------------- */
+var cfg = window.CET6_CONFIG || {};
+var CLOUD_OK = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+if(!CLOUD_OK) $('btnPublish').disabled = true;
+var ADMIN_KEY = '';
+try{ ADMIN_KEY = localStorage.getItem('cet6-admin-key') || ''; }catch(e){}
+$('btnPublish').onclick = function(){
+  if(!CLOUD_OK){ toast('还没配置 Supabase，先填 config.js', 'bad'); return; }
+  if(!S.data){ toast('先载入词库', 'bad'); return; }
+  if(!ADMIN_KEY){
+    ADMIN_KEY = (prompt(
+      '发布词库需要管理员密钥。\n\n' +
+      '在 Supabase 后台：Settings → API → Project API keys → 复制 service_role 那一串。\n\n' +
+      '（它只保存在这台电脑的浏览器里，不会写进网页文件，也不要发给别人）', '') || '').trim();
+    if(!ADMIN_KEY) return;
+    try{ localStorage.setItem('cet6-admin-key', ADMIN_KEY); }catch(e){}
+  }
+  if(!confirm('把当前 ' + S.data.words.length + ' 个词发布到云数据库？\n线上玩家刷新后就会看到新词库。')) return;
+  var url = String(cfg.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/' + (cfg.wordsTable || 'words');
+  var rows = S.data.words.map(function(w, i){
+    return {w:w.w, ph:w.ph, f:w.f, t:w.t, r:w.r, g:w.g, m:w.m, sort:i};
+  });
+  var headers = {
+    'apikey': ADMIN_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': 'resolution=merge-duplicates,return=minimal'
+  };
+  /* 老版 service_role key 是 JWT；新版 secret key（sb_secret_ 开头）只放 apikey */
+  if(/^eyJ/.test(ADMIN_KEY)) headers['Authorization'] = 'Bearer ' + ADMIN_KEY;
+  toast('正在发布…');
+  fetch(url + '?on_conflict=w', {method:'POST', headers:headers, body:JSON.stringify(rows)})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText); })
+    .then(function(){
+      toast('✅ 已发布到云数据库', 'good');
+      if(!cfg.useCloudWords){
+        setTimeout(function(){
+          if(confirm(
+            '词已经进云数据库了。\n\n' +
+            '但 config.js 里 useCloudWords = false，玩家现在读的还是静态 words.json。\n' +
+            '要不要顺手把这次的词库也导出成 words.json 上传覆盖？')) $('btnExport').click();
+        }, 400);
+      }
+    })
+    .catch(function(e){
+      try{ localStorage.removeItem('cet6-admin-key'); }catch(err){}
+      ADMIN_KEY = '';
+      toast('❌ 发布失败：' + e.message + '（密钥可能不对，请重试）', 'bad');
+    });
+};
+
+/* ---------------- 激活码管理 ---------------- */
+function adminKey(){
+  if(!ADMIN_KEY){
+    ADMIN_KEY = (prompt(
+      '管理激活码需要管理员密钥。\n\n' +
+      'Supabase → Settings → API Keys → 复制 secret / service_role 那一串。\n\n' +
+      '（只保存在本机浏览器，不会写进网页文件）', '') || '').trim();
+    if(ADMIN_KEY){ try{ localStorage.setItem('cet6-admin-key', ADMIN_KEY); }catch(e){} }
+  }
+  return ADMIN_KEY;
+}
+function codesHeaders(){
+  var h = {'apikey': ADMIN_KEY, 'Content-Type':'application/json'};
+  if(/^eyJ/.test(ADMIN_KEY)) h['Authorization'] = 'Bearer ' + ADMIN_KEY;
+  return h;
+}
+function randCode(){
+  var s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', a = '', b = '';
+  for(var i=0;i<4;i++) a += s[Math.floor(Math.random()*s.length)];
+  for(var j=0;j<4;j++) b += s[Math.floor(Math.random()*s.length)];
+  return 'CET6-' + a + '-' + b;
+}
+function showOverlay2(html){
+  var el = document.getElementById('overlay2');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'overlay2';
+    el.style.cssText = 'position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:20px;' +
+      'background:linear-gradient(180deg,rgba(9,14,34,.55),rgba(9,14,34,.72));overflow:auto';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<div style="background:#fff;border-radius:16px;padding:22px;width:min(920px,100%);' +
+    'max-height:100%;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.4)">' + html + '</div>';
+  el.style.display = 'grid';
+  el.onclick = function(e){ if(e.target === el) el.style.display = 'none'; };
+}
+var CODES = [];
+function loadCodes(){
+  var url = String(cfg.supabaseUrl).replace(/\/+$/,'') + '/rest/v1/' + (cfg.codesTable || 'codes') +
+    '?select=*&order=created_at.desc&limit=1000';
+  fetch(url, {headers: codesHeaders()})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status + '（是不是没跑 supabase-codes.sql？）'); return r.json(); })
+    .then(function(rows){
+      CODES = rows || [];
+      var used = CODES.filter(function(c){ return c.used_by; }).length;
+      var html = '<div class="stat" style="margin-bottom:10px">' +
+        '<div><b>' + CODES.length + '</b><span>总数</span></div>' +
+        '<div><b>' + (CODES.length - used) + '</b><span>未使用</span></div>' +
+        '<div><b>' + used + '</b><span>已激活</span></div></div>';
+      if(!CODES.length){
+        html += '<div class="hint">还没有激活码。上面填数量，点「生成」。</div>';
+      }else{
+        html += '<table><thead><tr><th>激活码</th><th>备注</th><th>状态</th><th>绑定设备</th><th>激活时间</th></tr></thead><tbody>';
+        CODES.forEach(function(c){
+          html += '<tr><td style="font-weight:800;font-family:ui-monospace,Consolas,monospace">' + c.code + '</td>' +
+            '<td>' + (c.note || '') + '</td>' +
+            '<td>' + (c.used_by ? '<span class="tag t3">已使用</span>' : '<span class="tag t1">未使用</span>') + '</td>' +
+            '<td style="font-size:11px;color:#8a94b4;font-family:ui-monospace,monospace">' + (c.used_by || '') + '</td>' +
+            '<td style="font-size:12px;color:#8a94b4">' + (c.used_at ? String(c.used_at).slice(0,16).replace('T',' ') : '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      $('codeList').innerHTML = html;
+    })
+    .catch(function(e){ $('codeList').innerHTML = '<div class="hint">读取失败：' + e.message + '</div>'; });
+}
+function copyUnused(){
+  var unused = CODES.filter(function(c){ return !c.used_by; });
+  if(!unused.length){ toast('没有未使用的激活码', 'bad'); return; }
+  var t = unused.map(function(c){ return c.code; }).join('\n');
+  try{
+    navigator.clipboard.writeText(t);
+    toast('已复制 ' + unused.length + ' 个未使用的激活码', 'good');
+  }catch(e){ download(t, 'codes.txt'); }
+}
+$('btnCodes').onclick = function(){
+  if(!CLOUD_OK){ toast('还没配置 Supabase，先填 config.js', 'bad'); return; }
+  if(!adminKey()) return;
+  showOverlay2(
+    '<h2 style="margin-top:0">🔑 激活码</h2>' +
+    '<p style="font-size:13px;color:#5a6484;line-height:1.7">生成后发给付费的同学，他们在游戏里输入一次即可。<b>一个码只能激活一台设备。</b><br>' +
+    '用之前记得先在 Supabase 里跑 <code>supabase-codes.sql</code> 建表。</p>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<input type="number" id="codeN" value="10" min="1" max="500" style="width:90px;font-family:inherit;font-size:14px;padding:.5em .6em;border:1px solid #e4e8f2;border-radius:9px">' +
+      '<input type="text" id="codeNote" placeholder="备注（卖给谁，可留空）" style="flex:1;min-width:180px;font-family:inherit;font-size:14px;padding:.5em .6em;border:1px solid #e4e8f2;border-radius:9px">' +
+      '<button class="primary" id="codeGen">生成</button>' +
+      '<button class="ghost" id="codeRefresh">刷新</button>' +
+      '<button class="ghost" id="codeCopy">复制未使用</button>' +
+      '<button class="ghost" id="codeClose">关闭</button>' +
+    '</div>' +
+    '<div id="codeList" style="margin-top:14px"></div>'
+  );
+  $('codeClose').onclick = function(){ document.getElementById('overlay2').style.display = 'none'; };
+  $('codeRefresh').onclick = loadCodes;
+  $('codeCopy').onclick = copyUnused;
+  $('codeGen').onclick = function(){
+    var n = Math.max(1, Math.min(500, parseInt($('codeN').value, 10) || 10));
+    var note = $('codeNote').value.trim();
+    var rows = [];
+    for(var i=0;i<n;i++) rows.push({code: randCode(), note: note});
+    toast('正在生成 ' + n + ' 个…');
+    fetch(String(cfg.supabaseUrl).replace(/\/+$/,'') + '/rest/v1/' + (cfg.codesTable || 'codes'),
+      {method:'POST', headers: Object.assign(codesHeaders(), {'Prefer':'return=minimal'}), body: JSON.stringify(rows)})
+      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); })
+      .then(function(){ toast('✅ 已生成 ' + n + ' 个激活码', 'good'); loadCodes(); })
+      .catch(function(e){ toast('❌ 生成失败：' + e.message, 'bad'); });
+  };
+  loadCodes();
+};
+
+/* ---------------- 翻页 / 筛选事件 ---------------- */
+$('q').addEventListener('input', function(){ S.page = 0; refresh(); });
+$('fTier').addEventListener('change', function(){ S.page = 0; refresh(); });
+$('fChapter').addEventListener('change', function(){ S.page = 0; refresh(); });
+$('pageSize').addEventListener('change', function(){ S.pageSize = +this.value; S.page = 0; renderTable(); });
+$('prev').onclick = function(){ if(S.page > 0){ S.page--; renderTable(); } };
+$('next').onclick = function(){
+  if((S.page+1) * S.pageSize < S.view.length){ S.page++; renderTable(); }
+};
+document.addEventListener('keydown', function(e){
+  if((e.ctrlKey || e.metaKey) && e.key === 's'){ e.preventDefault(); $('btnExport').click(); }
+});
+window.addEventListener('beforeunload', function(e){
+  if(S.undo){ e.preventDefault(); e.returnValue = ''; }
+});
+
+/* 打开时先试着自动载入词表：先找同目录 words.json，再找 data/words.json。
+   浏览器拦截 file:// 的话就忽略，手动选文件即可。 */
+(function autoLoad(){
+  var tries = ['words.json', 'data/words.json'];
+  function next(){
+    var u = tries.shift();
+    if(!u) return;
+    fetch(u, {cache:'no-store'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if(d && d.words && d.words.length) loadData(d, 'words.json');
+        else next();
+      })
+      .catch(next);
+  }
+  next();
+})();
+
+})();
+</script>
+</body>
+</html>
