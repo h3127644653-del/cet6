@@ -869,6 +869,42 @@ function buildLevel(levelIndex, words, seed){
     pits.push([px, px + pw]);
     pitGap[i] = true;
   }
+
+  /* 坑的正上方必须完全空着：否则玩家跳坑时会撞到平台/砖块被弹回来，
+     掉进坑里反复失败 —— 就是"卡关"。所有实体障碍都要通过 placeable() 检查。 */
+  function nearPit(x0, x1){
+    var pad = 1.6 * TILE;
+    for(var i=0;i<pits.length;i++){
+      if(x1 > pits[i][0] - pad && x0 < pits[i][1] + pad) return true;
+    }
+    return false;
+  }
+  function placeable(x0, x1){
+    return clearOfBlocks(x0, x1) && !nearPit(x0, x1);
+  }
+
+  /* 上下不能"叠得太近"：如果两块实体之间的缝比角色还矮，玩家会被卡在中间出不来。
+     角色高 46px，这里要求至少留 1.7 格（水泵/平台/砖块之间）。台阶是有意堆叠的，不适用。 */
+  var MIN_VGAP = 1.7 * TILE;
+  function xOverlap(a0, a1, b0, b1){ return a1 > b0 && a0 < b1; }
+  function noWedge(r){
+    var list = solids.concat(qblocks);
+    for(var i=0;i<list.length;i++){
+      var s = list[i];
+      if(s.type === 'ground') continue;                /* 地面不算 */
+      if(!xOverlap(r.x, r.x + r.w, s.x, s.x + s.w)) continue;
+      var sTop = s.y, sBottom = s.y + s.h;
+      var rTop = r.y, rBottom = r.y + r.h;
+      if(rTop >= sBottom){                             /* 新块在已有块下方 */
+        if(rTop - sBottom < MIN_VGAP) return false;
+      }else if(rBottom <= sTop){                       /* 新块在已有块上方 */
+        if(sTop - rBottom < MIN_VGAP) return false;
+      }else{
+        return false;                                  /* 直接重叠 */
+      }
+    }
+    return true;
+  }
   pits.sort(function(a,b){ return a[0]-b[0]; });
   var segs = [], cursor = -3*TILE;
   pits.forEach(function(p){
@@ -895,12 +931,14 @@ function buildLevel(levelIndex, words, seed){
     if(mid < sg0[0] + 2*TILE || mid > sg0[1] - 2*TILE) continue;
     if(R() < 0.5){
       var pw2 = 1.8*TILE;                          /* 矮水管，跳过去不用到方块高度 */
-      if(clearOfBlocks(mid - pw2/2, mid + pw2/2)){
+      if(placeable(mid - pw2/2, mid + pw2/2) &&
+         noWedge({x: mid - pw2/2, y: GROUND_Y - 1.6*TILE, w: pw2, h: 1.6*TILE})){
         solids.push({x: mid - pw2/2, y: GROUND_Y - 1.6*TILE, w: pw2, h: 1.6*TILE, type:'pipe'});
       }
     }else{
       var plw = 3.2*TILE;
-      if(clearOfBlocks(mid - plw/2, mid + plw/2)){
+      if(placeable(mid - plw/2, mid + plw/2) &&
+         noWedge({x: mid - plw/2, y: GROUND_Y - 2.5*TILE, w: plw, h: 22})){
         solids.push({x: mid - plw/2, y: GROUND_Y - 2.5*TILE, w: plw, h: 22, type:'plat'});
         coins.push({x: mid - 0.7*TILE, y: GROUND_Y - 3.3*TILE, r:13, got:false, t:R()*6});
         coins.push({x: mid + 0.7*TILE, y: GROUND_Y - 3.3*TILE, r:13, got:false, t:R()*6});
@@ -912,7 +950,7 @@ function buildLevel(levelIndex, words, seed){
   var stairTop = startX + n*GATE_SP - 8*TILE;
   var stairH = 4;
   var stairBase = stairTop - stairH*BW;
-  if(clearOfBlocks(stairBase, stairTop)){
+  if(placeable(stairBase, stairTop)){
     for(var s1=0;s1<stairH;s1++){
       for(var s2=0;s2<=s1;s2++){
         solids.push({x:stairBase + s1*BW, y:GROUND_Y-(s2+1)*BH, w:BW, h:BH, type:'stair'});
@@ -953,7 +991,8 @@ function buildLevel(levelIndex, words, seed){
     if(R() < 0.7){
       var qx = gateX + 6.6*TILE;
       var sg2 = segOf(qx);
-      if(qx + BW < sg2[1] - TILE && clearOfBlocks(qx, qx + 2*BW)){
+      if(qx + BW < sg2[1] - TILE && placeable(qx, qx + 2*BW) &&
+         noWedge({x: qx, y: GROUND_Y - 2.8*TILE, w: 2*BW, h: BH})){
         var roll = R();
         /* 放在答题方块下方（不是同一高度），避免挡住释义 */
         qblocks.push({x:qx, y:GROUND_Y-2.8*TILE, w:BW, h:BH, kind:'q', used:false,
@@ -975,7 +1014,8 @@ function buildLevel(levelIndex, words, seed){
     if(R() < 0.5){
       var plx = gateX + GATE_SP/2 - 2*TILE, ply = GROUND_Y - 2.6*TILE;
       var sg3 = segOf(plx+2*TILE);
-      if(plx + 4*TILE < sg3[1] - TILE && clearOfBlocks(plx, plx + 4*TILE)){
+      if(plx + 4*TILE < sg3[1] - TILE && placeable(plx, plx + 4*TILE) &&
+         noWedge({x: plx, y: ply, w: 4*TILE, h: 22})){
         solids.push({x:plx, y:ply, w:4*TILE, h:22, type:'plat'});
         coins.push({x:plx+1*TILE, y:ply-0.9*TILE, r:13, got:false, t:R()*6});
         coins.push({x:plx+2.4*TILE, y:ply-0.9*TILE, r:13, got:false, t:R()*6});
