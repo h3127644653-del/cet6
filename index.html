@@ -316,6 +316,9 @@ window.CET6_CONFIG = {
   wordsTable: 'words',
   progressTable: 'progress',
   codesTable: 'codes',
+  /* 验证码云函数名（短信/邮件）。留空 = 关闭，忘记密码走「找回码」
+     想启用：部署 supabase/functions/send-code 后，这里填 'send-code' */
+  verifyFn: '',
   /* 词库从哪读：
      false = 读静态文件 words.json（省流量，推荐；改词库就上传这一个文件）
      true  = 读云数据库（能在 admin.html 里点「发布到云」直接更新，但每次打开游戏
@@ -2902,7 +2905,10 @@ function landing(tab, msg, warn){
     (isLogin
       ? '<input class="spellInput" id="auId" placeholder="手机号 或 邮箱（如 123@qq.com）" autocomplete="username" spellcheck="false">' +
         '<input class="spellInput" id="auPwd" type="password" placeholder="密码" autocomplete="current-password" style="margin-top:.5em">' +
-        '<div class="btnRow" style="justify-content:center"><button class="btn gold" id="auGo" style="min-width:8em">登录</button></div>'
+        '<div class="btnRow" style="justify-content:center">' +
+          '<button class="btn gold" id="auGo" style="min-width:8em">登录</button>' +
+          '<button class="btn ghost" id="auForgot">忘记密码？</button>' +
+        '</div>'
       : '<input class="spellInput" id="auId" placeholder="手机号 或 邮箱（如 123@qq.com）" autocomplete="username" spellcheck="false">' +
         '<input class="spellInput" id="auNick" placeholder="昵称（可不填）" style="margin-top:.5em">' +
         '<input class="spellInput" id="auPwd" type="password" placeholder="设置密码（至少 6 位）" autocomplete="new-password" style="margin-top:.5em">' +
@@ -2917,6 +2923,7 @@ function landing(tab, msg, warn){
   );
   $('tabLogin').onclick = function(){ landing('login'); };
   $('tabReg').onclick = function(){ landing('register'); };
+  if($('auForgot')) $('auForgot').onclick = forgotPwd;
   var go = $('auGo');
   var idEl = $('auId');
   try{ idEl.focus(); }catch(e){}
@@ -2964,12 +2971,132 @@ function afterAuth(r, hello){
   save.auth = {id:r.id, uid:r.uid, nick:r.nick || r.id, kind:r.kind || 'email'};
   save.persist();
   setDeviceUid(r.uid);                     /* 进度跟着账号走 */
+  if(r.recovery){ showRecovery(r.recovery, hello); return; }   /* 新注册：先让用户保存找回码 */
   if(hello) toast('✅ ' + hello, 'good', 2200);
   /* 云端有这个账号的进度就用云端的；没有就把本机的推上去 */
   cloudPull().then(function(got){
     if(!got) cloudPush();
     setTimeout(function(){ bootUI(); }, 260);
   }).catch(function(){ bootUI(); });
+}
+
+/* 注册成功 → 展示找回码（只显示这一次） */
+function showRecovery(code, hello){
+  G.state = 'recovery';
+  showOverlay(
+    '<div class="brand"><div class="logo">🔑</div><div>' +
+      '<h1 style="margin:0">' + (hello || '注册成功') + '</h1>' +
+      '<p style="margin:0">这是你的「找回码」，请立刻保存下来</p>' +
+    '</div></div>' +
+    '<div style="text-align:center;font-family:ui-monospace,Consolas,monospace;font-weight:900;' +
+      'font-size:clamp(17px,2.8vw,28px);letter-spacing:.05em;color:#16204a;background:#f4f7ff;' +
+      'border:2px dashed #cfd9f2;border-radius:14px;padding:.7em .4em;margin:.7em 0;word-break:break-all">' +
+      code + '</div>' +
+    '<div class="hint" style="background:#fff7e6;border-color:#ffd7a1;color:#8a5a00">' +
+      '⚠️ <b>忘记密码时只能靠这串码重置</b> —— 我们看不到你的密码，也找不回来。<br>' +
+      '请截图、或写进备忘录/笔记本。丢了就只能联系管理员帮你重置。' +
+    '</div>' +
+    '<div class="btnRow" style="justify-content:center">' +
+      '<button class="btn ghost" id="rcCopy">📋 复制找回码</button>' +
+      '<button class="btn gold" id="rcGo">我已保存，开始闯关</button>' +
+    '</div>'
+  );
+  $('rcCopy').onclick = function(){
+    try{
+      navigator.clipboard.writeText(code);
+      toast('已复制，去粘贴保存吧', 'good', 1800);
+    }catch(e){ window.prompt('手动复制这串找回码：', code); }
+  };
+  $('rcGo').onclick = function(){
+    cloudPull().then(function(got){ if(!got) cloudPush(); setTimeout(bootUI, 200); })
+      .catch(function(){ bootUI(); });
+  };
+}
+
+/* 忘记密码 → 用找回码重置 */
+function forgotPwd(){
+  G.state = 'forgot';
+  var useCode = !!(CLOUD && CLOUD.verifyFn);     /* 配了短信/邮件验证码就走验证码流程 */
+  showOverlay(
+    '<h2>🔑 找回密码</h2>' +
+    (useCode
+      ? '<p>输入账号 → 获取验证码 → 设置新密码。验证码 10 分钟内有效。</p>'
+      : '<p>用注册时给你的<b>找回码</b>重置密码。没保存的话，联系管理员帮你重置。</p>') +
+    '<input class="spellInput" id="fgId" placeholder="账号（手机号 或 邮箱）" autocomplete="username" spellcheck="false">' +
+    (useCode
+      ? '<div style="display:flex;gap:.5em;margin-top:.5em">' +
+          '<input class="spellInput" id="fgRc" placeholder="6 位验证码" inputmode="numeric" maxlength="6" style="flex:1">' +
+          '<button class="btn ghost" id="fgSend" style="flex:0 0 auto">获取验证码</button>' +
+        '</div>'
+      : '<input class="spellInput" id="fgRc" placeholder="找回码 RC-XXXX-XXXX-XXXX" spellcheck="false" style="margin-top:.5em">') +
+    '<input class="spellInput" id="fgPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" style="margin-top:.5em">' +
+    '<input class="spellInput" id="fgPwd2" type="password" placeholder="再输一次新密码" autocomplete="new-password" style="margin-top:.5em">' +
+    '<div id="fgMsg" style="text-align:center;font-weight:800;min-height:1.5em;margin-top:.5em"></div>' +
+    '<div class="btnRow" style="justify-content:center">' +
+      '<button class="btn gold" id="fgGo">重置密码</button>' +
+      '<button class="btn ghost" id="fgBack">返回登录</button>' +
+    '</div>'
+  );
+  var m = $('fgMsg');
+  $('fgBack').onclick = function(){ landing('login'); };
+  /* 获取验证码（走云函数） */
+  if($('fgSend')){
+    $('fgSend').onclick = function(){
+      var id = String($('fgId').value || '').trim();
+      if(!id){ m.style.color = '#b8203a'; m.textContent = '请先填手机号或邮箱'; return; }
+      m.style.color = ''; m.textContent = '正在发送…';
+      var btn = $('fgSend'); btn.disabled = true;
+      fetchJson(CLOUD_URL + '/functions/v1/' + CLOUD.verifyFn, {
+        method: 'POST',
+        headers: cloudHeaders(),
+        body: JSON.stringify({target: id, purpose: 'reset'})
+      }).then(function(r){
+        m.style.color = (r && r.ok) ? '#17794a' : '#b8203a';
+        m.textContent = (r && r.ok ? '✅ ' : '❌ ') + ((r && r.msg) || '发送失败');
+        var n = 60;
+        var t = setInterval(function(){
+          n--; btn.textContent = n + ' 秒后重发';
+          if(n <= 0){ clearInterval(t); btn.disabled = false; btn.textContent = '获取验证码'; }
+        }, 1000);
+        btn.textContent = n + ' 秒后重发';
+      }).catch(function(){
+        btn.disabled = false;
+        m.style.color = '#b8203a';
+        m.textContent = '❌ 发送失败：云函数没部署或网络异常';
+      });
+    };
+  }
+  var run = function(){
+    var id = String($('fgId').value || '').trim();
+    var rc = String($('fgRc').value || '').trim();
+    var p1 = String($('fgPwd').value || '');
+    var p2 = String($('fgPwd2').value || '');
+    if(!id || !rc){ m.style.color = '#b8203a'; m.textContent = '账号和找回码都要填'; return; }
+    if(p1.length < 6){ m.style.color = '#b8203a'; m.textContent = '新密码至少 6 位'; return; }
+    if(p1 !== p2){ m.style.color = '#b8203a'; m.textContent = '两次输入的新密码不一样'; return; }
+    m.style.color = ''; m.textContent = '正在重置…';
+    var call = useCode ? rpc('reset_pwd_by_code', {p_id: id, p_code: rc, p_new: p1})
+                       : rpc('reset_pwd', {p_id: id, p_rc: rc, p_new: p1});
+    call.then(function(r){
+      if(r && (r.ok === true || r.ok === 'true')){
+        m.style.color = '#17794a'; m.textContent = '✅ 密码已重置';
+        setTimeout(function(){ landing('login', '密码已重置，用新密码登录吧'); }, 800);
+      }else{
+        m.style.color = '#b8203a';
+        m.textContent = '❌ ' + ((r && r.msg) || '重置失败');
+      }
+    }).catch(function(e){
+      m.style.color = '#b8203a';
+      m.textContent = rpcNotReady(e) ? '❌ 请先在 Supabase 跑一遍 supabase-users.sql'
+                                     : '❌ 网络异常，请连上网后重试';
+    });
+  };
+  $('fgGo').onclick = run;
+  ['fgId','fgRc','fgPwd','fgPwd2'].forEach(function(x){
+    var el = $(x);
+    if(el) el.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); run(); } });
+  });
+  try{ $('fgId').focus(); }catch(e){}
 }
 
 function logout(){
