@@ -2952,15 +2952,16 @@ function landing(tab, msg, warn){
           '<button class="btn gold" id="auGo" style="min-width:8em">登录</button>' +
           '<button class="btn ghost" id="auForgot">忘记密码？</button>' +
         '</div>'
-      : '<input class="spellInput" id="auId" placeholder="手机号 或 邮箱（如 123@qq.com）" autocomplete="username" spellcheck="false">' +
+      : '<input class="spellInput" id="auPhone" placeholder="手机号（11 位）" inputmode="numeric" autocomplete="tel" spellcheck="false">' +
+        '<input class="spellInput" id="auEmail" placeholder="邮箱（找回密码用，如 123@qq.com）" inputmode="email" autocomplete="email" spellcheck="false" style="margin-top:.5em">' +
         '<input class="spellInput" id="auNick" placeholder="昵称（可不填）" style="margin-top:.5em">' +
         '<input class="spellInput" id="auPwd" type="password" placeholder="设置密码（至少 6 位）" autocomplete="new-password" style="margin-top:.5em">' +
         '<input class="spellInput" id="auPwd2" type="password" placeholder="再输一次密码" autocomplete="new-password" style="margin-top:.5em">' +
         '<div class="btnRow" style="justify-content:center"><button class="btn gold" id="auGo" style="min-width:8em">注册并开始</button></div>') +
 
     '<div class="hint" style="margin-top:.8em">' +
-      '账号用来保存你的学习进度，换手机登录同一账号即可继续。' +
-      '密码在服务器加密保存，我们看不到你的密码。' +
+      '注册要填<b>手机号和邮箱</b>：手机号当登录账号，邮箱用来收验证码、找回密码。<br>' +
+      '换手机登录同一账号即可继续进度；密码在服务器加密保存，我们看不到你的密码。' +
     '</div>' +
     (CLOUD ? '' : '<div class="btnRow" style="justify-content:center;margin-top:.8em"><button class="btn ghost" id="auGuest">先随便看看（游客）</button></div>')
   );
@@ -2968,15 +2969,15 @@ function landing(tab, msg, warn){
   $('tabReg').onclick = function(){ landing('register'); };
   if($('auForgot')) $('auForgot').onclick = forgotPwd;
   var go = $('auGo');
-  var idEl = $('auId');
-  try{ idEl.focus(); }catch(e){}
+  var idEl = $('auId') || $('auPhone');
+  try{ if(idEl) idEl.focus(); }catch(e){}
   function submit(){
-    var id = String(idEl.value || '').trim();
-    var pwd = String($('auPwd').value || '');
+    var pwd = String(($('auPwd') || {}).value || '');
     var fb = $('authMsg');
-    if(!id){ fb.style.color = '#b8203a'; fb.textContent = '请填写手机号或邮箱'; return; }
     if(!CLOUD){ fb.style.color = '#b8203a'; fb.textContent = '❌ 账号系统未配置（需要先在 config.js 里填 Supabase）'; return; }
     if(isLogin){
+      var id = String(($('auId') || {}).value || '').trim();
+      if(!id){ fb.style.color = '#b8203a'; fb.textContent = '请填写手机号或邮箱'; return; }
       if(!pwd){ fb.style.color = '#b8203a'; fb.textContent = '请输入密码'; return; }
       fb.style.color = ''; fb.textContent = '正在登录…';
       rpc('login_user', {p_id: id, p_pwd: pwd}).then(function(r){
@@ -2988,11 +2989,15 @@ function landing(tab, msg, warn){
                                         : '❌ 网络异常，请连上网后重试';
       });
     }else{
-      var pwd2 = String($('auPwd2').value || '');
+      var phone = String(($('auPhone') || {}).value || '').replace(/[^0-9]/g, '');
+      var email = String(($('auEmail') || {}).value || '').trim().toLowerCase();
+      var pwd2 = String(($('auPwd2') || {}).value || '');
+      if(!/^1[3-9]\d{9}$/.test(phone)){ fb.style.color = '#b8203a'; fb.textContent = '手机号要填 11 位数字，例如 13800138000'; return; }
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ fb.style.color = '#b8203a'; fb.textContent = '邮箱要填对，例如 123@qq.com'; return; }
       if(pwd.length < 6){ fb.style.color = '#b8203a'; fb.textContent = '密码至少 6 位'; return; }
       if(pwd !== pwd2){ fb.style.color = '#b8203a'; fb.textContent = '两次输入的密码不一样'; return; }
       fb.style.color = ''; fb.textContent = '正在注册…';
-      rpc('register_user', {p_id: id, p_pwd: pwd, p_nick: String($('auNick').value || '').trim()}).then(function(r){
+      rpc('register_user', {p_phone: phone, p_email: email, p_pwd: pwd, p_nick: String(($('auNick') || {}).value || '').trim()}).then(function(r){
         if(r && (r.ok === true || r.ok === 'true')) afterAuth(r, '注册成功，开始闯关吧！');
         else { fb.style.color = '#b8203a'; fb.textContent = '❌ ' + ((r && r.msg) || '注册失败'); }
       }).catch(function(e){
@@ -3003,7 +3008,7 @@ function landing(tab, msg, warn){
     }
   }
   go.onclick = submit;
-  ['auId','auPwd','auPwd2','auNick'].forEach(function(x){
+  ['auId','auPhone','auEmail','auPwd','auPwd2','auNick'].forEach(function(x){
     var el = $(x);
     if(el) el.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); submit(); } });
   });
@@ -3065,14 +3070,16 @@ function forgotPwd(){
   showOverlay(
     '<h2>🔑 找回密码</h2>' +
     (useCode
-      ? '<p>输入账号 → 获取验证码 → 设置新密码。验证码 10 分钟内有效。</p>'
+      ? '<p>两种方式任选一种：<b>邮箱验证码</b>（发到你注册时留的邮箱，10 分钟内有效）或注册时保存的<b>找回码</b>。</p>'
       : '<p>用注册时给你的<b>找回码</b>重置密码。没保存的话，联系管理员帮你重置。</p>') +
     '<input class="spellInput" id="fgId" placeholder="账号（手机号 或 邮箱）" autocomplete="username" spellcheck="false">' +
     (useCode
       ? '<div style="display:flex;gap:.5em;margin-top:.5em">' +
-          '<input class="spellInput" id="fgRc" placeholder="6 位验证码" inputmode="numeric" maxlength="6" style="flex:1">' +
+          '<input class="spellInput" id="fgCode" placeholder="6 位邮箱验证码" inputmode="numeric" maxlength="6" style="flex:1">' +
           '<button class="btn ghost" id="fgSend" style="flex:0 0 auto">获取验证码</button>' +
-        '</div>'
+        '</div>' +
+        '<div style="text-align:center;font-weight:800;color:#9a8f7a;margin:.5em 0 .1em">或者</div>' +
+        '<input class="spellInput" id="fgRc" placeholder="找回码 RC-XXXX-XXXX-XXXX" spellcheck="false">'
       : '<input class="spellInput" id="fgRc" placeholder="找回码 RC-XXXX-XXXX-XXXX" spellcheck="false" style="margin-top:.5em">') +
     '<input class="spellInput" id="fgPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" style="margin-top:.5em">' +
     '<input class="spellInput" id="fgPwd2" type="password" placeholder="再输一次新密码" autocomplete="new-password" style="margin-top:.5em">' +
@@ -3122,14 +3129,21 @@ function forgotPwd(){
   var run = function(){
     var id = String($('fgId').value || '').trim();
     var rc = String($('fgRc').value || '').trim();
+    var code = (useCode && $('fgCode')) ? String($('fgCode').value || '').trim() : '';
     var p1 = String($('fgPwd').value || '');
     var p2 = String($('fgPwd2').value || '');
-    if(!id || !rc){ m.style.color = '#b8203a'; m.textContent = '账号和找回码都要填'; return; }
+    if(!id){ m.style.color = '#b8203a'; m.textContent = '请先填账号（手机号 或 邮箱）'; return; }
+    if(!code && !rc){
+      m.style.color = '#b8203a';
+      m.textContent = useCode ? '请填邮箱验证码，或填找回码' : '请填找回码';
+      return;
+    }
     if(p1.length < 6){ m.style.color = '#b8203a'; m.textContent = '新密码至少 6 位'; return; }
     if(p1 !== p2){ m.style.color = '#b8203a'; m.textContent = '两次输入的新密码不一样'; return; }
     m.style.color = ''; m.textContent = '正在重置…';
-    var call = useCode ? rpc('reset_pwd_by_code', {p_id: id, p_code: rc, p_new: p1})
-                       : rpc('reset_pwd', {p_id: id, p_rc: rc, p_new: p1});
+    /* 填了邮箱验证码就走验证码，否则走找回码 */
+    var call = code ? rpc('reset_pwd_by_code', {p_id: id, p_code: code, p_new: p1})
+                    : rpc('reset_pwd', {p_id: id, p_rc: rc, p_new: p1});
     call.then(function(r){
       if(r && (r.ok === true || r.ok === 'true')){
         m.style.color = '#17794a'; m.textContent = '✅ 密码已重置';
@@ -3145,7 +3159,7 @@ function forgotPwd(){
     });
   };
   $('fgGo').onclick = run;
-  ['fgId','fgRc','fgPwd','fgPwd2'].forEach(function(x){
+  ['fgId','fgCode','fgRc','fgPwd','fgPwd2'].forEach(function(x){
     var el = $(x);
     if(el) el.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); run(); } });
   });
