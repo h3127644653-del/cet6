@@ -319,6 +319,9 @@ window.CET6_CONFIG = {
   /* 验证码云函数名（短信/邮件）。留空 = 关闭，忘记密码走「找回码」
      想启用：部署 supabase/functions/send-code 后，这里填 'send-code' */
   verifyFn: '',
+  /* 邮箱验证码（数据库直发，不用云函数）：true = 忘记密码时提供「获取验证码」
+     需要先在 Supabase 跑 supabase-mail.sql */
+  mailCode: true,
   /* 词库从哪读：
      false = 读静态文件 words.json（省流量，推荐；改词库就上传这一个文件）
      true  = 读云数据库（能在 admin.html 里点「发布到云」直接更新，但每次打开游戏
@@ -3057,6 +3060,8 @@ function showRecovery(code, hello){
 function forgotPwd(){
   G.state = 'forgot';
   var useCode = !!(CLOUD && CLOUD.verifyFn);     /* 配了短信/邮件验证码就走验证码流程 */
+  var useMailCode = !!(CLOUD && !CLOUD.verifyFn && CLOUD.mailCode !== false);
+  if(!useCode && useMailCode) useCode = true;    /* 数据库直发邮件验证码 */
   showOverlay(
     '<h2>🔑 找回密码</h2>' +
     (useCode
@@ -3086,11 +3091,18 @@ function forgotPwd(){
       if(!id){ m.style.color = '#b8203a'; m.textContent = '请先填手机号或邮箱'; return; }
       m.style.color = ''; m.textContent = '正在发送…';
       var btn = $('fgSend'); btn.disabled = true;
-      fetchJson(CLOUD_URL + '/functions/v1/' + CLOUD.verifyFn, {
-        method: 'POST',
-        headers: cloudHeaders(),
-        body: JSON.stringify({target: id, purpose: 'reset'})
-      }).then(function(r){
+      var req;
+      if(CLOUD.verifyFn){
+        req = fetchJson(CLOUD_URL + '/functions/v1/' + CLOUD.verifyFn, {
+          method: 'POST',
+          headers: cloudHeaders(),
+          body: JSON.stringify({target: id, purpose: 'reset'})
+        });
+      }else{
+        /* 数据库直发（supabase-mail.sql 里的 send_verify_code） */
+        req = rpc('send_verify_code', {p_target: id, p_purpose: 'reset'});
+      }
+      req.then(function(r){
         m.style.color = (r && r.ok) ? '#17794a' : '#b8203a';
         m.textContent = (r && r.ok ? '✅ ' : '❌ ') + ((r && r.msg) || '发送失败');
         var n = 60;
@@ -3099,10 +3111,11 @@ function forgotPwd(){
           if(n <= 0){ clearInterval(t); btn.disabled = false; btn.textContent = '获取验证码'; }
         }, 1000);
         btn.textContent = n + ' 秒后重发';
-      }).catch(function(){
+      }).catch(function(e){
         btn.disabled = false;
         m.style.color = '#b8203a';
-        m.textContent = '❌ 发送失败：云函数没部署或网络异常';
+        m.textContent = rpcNotReady(e) ? '❌ 请先在 Supabase 跑一遍 supabase-mail.sql'
+                                       : '❌ 发送失败，请检查网络后重试';
       });
     };
   }
