@@ -395,7 +395,20 @@ return {"version":3,"updated":"2026-10-11","source":"《大学英语六级词汇
 (function(){
 'use strict';
 
-var D = window.CET6 || {};
+/* ---------------- 词库：六级 / 四级（菜单里可切换） ---------------- */
+var BANKS = {
+  cet6: {id:'cet6', name:'六级', brand:'星火六级闯关', sub:'用《超级马里奥》的方式背六级单词',
+         dataFile:'words.json', src:'《大学英语六级词汇乱序版》', wordLabel:'六级词'},
+  cet4: {id:'cet4', name:'四级', brand:'星火四级闯关', sub:'用《超级马里奥》的方式背四级单词',
+         dataFile:'cet4-words.json', src:'《大学英语四级词汇带音标-乱序版》', wordLabel:'四级词'}
+};
+var BANK = (function(){
+  try{ return localStorage.getItem('cet6quest.bank') === 'cet4' ? 'cet4' : 'cet6'; }catch(e){ return 'cet6'; }
+})();
+var BANK_INFO = BANKS[BANK];
+var bankFallback = false;      /* 四级词库拿不到（比如单文件版）就退回六级 */
+var bankDataOk = false;        /* 当前词库的数据真的加载到了（四级时用它判断） */
+var D = (BANK === 'cet4' && window.CET4) ? window.CET4 : (window.CET6 || {});
 /* ---------------- 词库与关卡结构 ----------------
    词库只有一份「纯词表」，关卡 / 章节 / 主题全部按 perLevel、chapterSize 自动推导，
    所以后台改完单词直接导出 words.json 就能生效，不用动任何代码。            */
@@ -511,7 +524,21 @@ function loadWordData(){
 function loadWordsFile(){
   /* 不加时间戳，让浏览器 / CDN 正常缓存（省流量）；
      需要强制刷新时改文件名或加版本号即可 */
-  return fetchJson('words.json').then(function(d){ return applyWordData(d); });
+  var file = BANK_INFO.dataFile;
+  return fetchJson(file).then(function(d){
+    var ok = applyWordData(d);
+    if(ok && file !== 'words.json') bankDataOk = true;
+    return ok;
+  })
+    .catch(function(e){
+      if(file === 'words.json') throw e;
+      /* 四级词库没拿到（没上传 / 单文件版）→ 退回六级，别让界面和内容对不上 */
+      return fetchJson('words.json').then(function(d){
+        var ok = applyWordData(d);
+        if(ok){ bankFallback = true; BANK = 'cet6'; BANK_INFO = BANKS.cet6; }
+        return ok;
+      });
+    });
 }
 
 /* ---------- 进度云同步：用匿名设备 ID，不需要注册 ---------- */
@@ -525,6 +552,8 @@ function deviceId(){
   return v;
 }
 var pushTimer = null;
+/* 云同步的 uid：两套词库各存一份，互不干扰（六级沿用原来的 uid，老数据不动） */
+function syncUid(){ return deviceId() + (BANK === 'cet4' ? '-c4' : ''); }
 function schedulePush(){
   if(!CLOUD || !CLOUD.progressTable) return;
   clearTimeout(pushTimer);
@@ -537,7 +566,7 @@ function cloudPush(){
       method: 'POST',
       headers: cloudHeaders({'Prefer': 'resolution=merge-duplicates,return=minimal'}),
       body: JSON.stringify({
-        uid: deviceId(),
+        uid: syncUid(),
         unlocked: save.unlocked,
         stars: save.stars,
         best: save.best,
@@ -552,7 +581,7 @@ function cloudPush(){
 function cloudPull(uid, force){
   if(!CLOUD || !CLOUD.progressTable) return Promise.resolve(false);
   var url = CLOUD_URL + '/rest/v1/' + CLOUD.progressTable +
-    '?select=*&uid=eq.' + encodeURIComponent(uid || deviceId()) + '&limit=1';
+    '?select=*&uid=eq.' + encodeURIComponent(uid || syncUid()) + '&limit=1';
   return fetchJson(url, {headers: cloudHeaders()}).then(function(rows){
     if(!Array.isArray(rows) || !rows.length) return false;
     var r = rows[0];
@@ -569,7 +598,8 @@ function cloudPull(uid, force){
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         unlocked:save.unlocked, stars:save.stars, best:save.best, wrongBook:save.wrongBook,
         sound:save.sound, voice:save.voice, timer:save.timer, coins:save.coins,
-        rotateSkip:save.rotateSkip, updatedAt:save.updatedAt, activated:save.activated
+        rotateSkip:save.rotateSkip, updatedAt:save.updatedAt, activated:save.activated,
+        auth:save.auth, banks:save.banks, curBank:save.curBank
       }));
     }catch(e){}
     return true;
@@ -641,6 +671,8 @@ var save = {
       this.updatedAt = s.updatedAt || 0;
       this.activated = s.activated === true;
       this.auth = s.auth || null;
+      this.banks = s.banks || {};        /* 每个词库各自的进度（见 applyBankProgress） */
+      this.curBank = s.curBank || null;
     }catch(e){}
   },
   persist:function(){
@@ -650,13 +682,58 @@ var save = {
         unlocked:this.unlocked, stars:this.stars, best:this.best, wrongBook:this.wrongBook,
         sound:this.sound, voice:this.voice, timer:this.timer, coins:this.coins,
         rotateSkip:this.rotateSkip, updatedAt:this.updatedAt, activated:this.activated
-        , auth:this.auth
+        , auth:this.auth, banks:this.banks, curBank:this.curBank
       }));
     }catch(e){}
     schedulePush();     /* 配了云同步就延时上传进度 */
   }
 };
 save.load();
+
+/* 切换词库时：先把当前进度收进 banks[旧词库]，再把目标词库的进度装回来。
+   账号（auth）和音效设置是共用的，不跟着切。 */
+var bankProgressDone = false;
+function applyBankProgress(){
+  if(bankProgressDone) return;
+  bankProgressDone = true;
+  save.banks = save.banks || {};
+  if(save.curBank === BANK) return;
+  if(!save.curBank){
+    /* 老存档（没有词库标记）：它本来就是六级进度 → 直接认领，一点都不动 */
+    save.curBank = BANK;
+    if(BANK === 'cet4'){
+      /* 但玩家选的是四级：把老进度收进六级名下，四级从零开始 */
+      save.banks['cet6'] = {
+        unlocked:save.unlocked, stars:save.stars, best:save.best,
+        wrongBook:save.wrongBook, coins:save.coins, activated:save.activated
+      };
+      save.unlocked = 1; save.stars = {}; save.best = {}; save.wrongBook = {};
+      save.coins = 0; save.activated = false;
+    }
+    save.persist();
+    return;
+  }
+  if(save.curBank){
+    save.banks[save.curBank] = {
+      unlocked:save.unlocked, stars:save.stars, best:save.best,
+      wrongBook:save.wrongBook, coins:save.coins, activated:save.activated
+    };
+  }
+  var b = save.banks[BANK];
+  if(b){
+    save.unlocked = b.unlocked || 1;
+    save.stars = b.stars || {};
+    save.best = b.best || {};
+    save.wrongBook = b.wrongBook || {};
+    save.coins = (typeof b.coins === 'number') ? b.coins : 0;
+    save.activated = b.activated === true;
+  }else{
+    save.unlocked = 1; save.stars = {}; save.best = {}; save.wrongBook = {};
+    save.coins = 0; save.activated = false;
+  }
+  save.curBank = BANK;
+  save.persist();
+}
 
 /* ============================ 音效 ============================ */
 var AC = null;
@@ -2483,11 +2560,11 @@ function menu(){
   var nxtDef = LEVELS[nxt] || {unit:'1-1', name:''};
   showOverlay(
     '<div class="brand"><div class="logo">星</div><div>' +
-      '<h1 style="margin:0">星火六级闯关</h1>' +
-      '<p style="margin:0">CET-6 Quest · ' + WORDS.length + ' 个六级词 · ' + LEVELS.length + ' 关 · 手机可玩</p>' +
+      '<h1 style="margin:0">' + BANK_INFO.brand + '</h1>' +
+      '<p style="margin:0">CET Quest · ' + WORDS.length + ' 个' + BANK_INFO.wordLabel + ' · ' + LEVELS.length + ' 关 · 手机可玩</p>' +
     '</div></div>' +
     '<p>跑、跳、撞方块、踩怪、吃蘑菇、滑旗杆 —— 用<strong>超级马里奥</strong>的方式背单词。' +
-    '词库取自《大学英语六级词汇乱序版》，每关 20 个词，' +
+    '词库取自' + BANK_INFO.src + '，每关 20 个词，' +
     '<span class="tier t1">易</span><span class="tier t2">中</span><span class="tier t3">难</span> 三种难度混排，' +
     '看顶部单词，跳起来撞出正确的释义方块。</p>' +
     '<div class="stat">' +
@@ -2510,6 +2587,7 @@ function menu(){
       '<button class="btn ghost" id="mWords">生词本（' + WORDS.length + ' 词 · 可开打）</button>' +
       '<button class="btn ghost" id="mWrong"' + (wb ? '' : ' disabled') + '>错词本闯关（' + wb + ' 词）</button>' +
       '<button class="btn ghost" id="mSpell">✍️ 拼写练习</button>' +
+      '<button class="btn ghost" id="mBank">📚 词库：' + BANK_INFO.name + '（可切换）</button>' +
       '<button class="btn ghost" id="mSet">设置</button>' +
     '</div>'
   );
@@ -2519,7 +2597,55 @@ function menu(){
   $('mWords').onclick = function(){ wordBook(); };
   $('mWrong').onclick = startWrongDrill;
   $('mSpell').onclick = spellingMenu;
+  $('mBank').onclick = bankMenu;
   $('mSet').onclick = settings;
+}
+
+/* ---------------- 词库切换 ---------------- */
+var bankAvail = {};            /* id -> 能不能加载（undefined = 还没探过） */
+function probeBank(id, cb){
+  if(id === 'cet6' || id === BANK){ cb(true); return; }
+  if(bankAvail[id] !== undefined){ cb(bankAvail[id]); return; }
+  try{
+    fetch(BANKS[id].dataFile, {method:'HEAD'})
+      .then(function(r){ bankAvail[id] = !!(r && r.ok); cb(bankAvail[id]); })
+      .catch(function(){ bankAvail[id] = false; cb(false); });
+  }catch(e){ bankAvail[id] = false; cb(false); }
+}
+function bankMenu(){
+  var ids = ['cet6', 'cet4'];
+  var rows = '', pending = ids.length;
+  ids.forEach(function(id){
+    probeBank(id, function(ok){
+      var cur = (id === BANK);
+      rows += '<button class="btn ' + (cur ? 'gold' : 'ghost') + '"' +
+              (ok ? ' data-bank="' + id + '"' : ' disabled') + '>' +
+              (cur ? '✅ ' : '') + BANKS[id].name + '词库' +
+              (cur ? '（当前）' : (ok ? '' : '（这个版本里没有）')) + '</button>';
+      if(--pending === 0) showBankMenu(rows);
+    });
+  });
+}
+function showBankMenu(rows){
+  showOverlay(
+    '<h2>📚 选择词库</h2>' +
+    '<p>当前：<b>' + BANK_INFO.name + '</b>（' + WORDS.length + ' 词 · ' + LEVELS.length + ' 关）。<br>' +
+    '两套词库各自记进度和错词本，互不影响；切换后会自动刷新页面。</p>' +
+    '<div class="btnRow">' + rows + '</div>' +
+    '<div class="btnRow"><button class="btn ghost" id="bkBack">返回主菜单</button></div>'
+  );
+  $('bkBack').onclick = menu;
+  var btns = document.querySelectorAll('#card button[data-bank]');
+  for(var i = 0; i < btns.length; i++){
+    (function(b){
+      b.onclick = function(){
+        var id = b.getAttribute('data-bank');
+        if(id === BANK){ menu(); return; }
+        try{ localStorage.setItem('cet6quest.bank', id); }catch(e){}
+        location.reload();
+      };
+    })(btns[i]);
+  }
 }
 
 function levelSelect(){
@@ -2550,7 +2676,7 @@ function levelSelect(){
   }
   showOverlay(
     '<h2>选择关卡</h2>' +
-    '<p>共 ' + LEVELS.length + ' 关，每 10 关一章（' + WORDS.length + ' 个六级词）。' +
+    '<p>共 ' + LEVELS.length + ' 关，每 10 关一章（' + WORDS.length + ' 个' + BANK_INFO.wordLabel + '）。' +
     '每关 20 词，「易 + 中 + 难」混排；通关任意一关即可解锁下一章。</p>' +
     html +
     '<div class="btnRow">' +
@@ -2589,7 +2715,7 @@ function wordBook(){
   }
   showOverlay(
     '<h2>生词本 · ' + WORDS.length + ' 词</h2>' +
-    '<p>词库来自《大学英语六级词汇乱序版》，共 ' + WORDS.length + ' 词，按 ' + LEVELS.length +
+    '<p>词库来自' + BANK_INFO.src + '，共 ' + WORDS.length + ' 词，按 ' + LEVELS.length +
     ' 关分组（每组 20 词）。点 🔊 听发音，点「▶ 打这一组」可以直接把这 20 个词当成一关来闯。</p>' + html +
     '<div class="btnRow">' +
       '<button class="btn" id="back">返回</button>' +
@@ -2632,7 +2758,7 @@ function settings(){
             : '<b>未登录</b>：进度只存在这台设备上。')
         : '') +
       (CLOUD
-        ? '<b>云同步已开启</b>。本机同步码：<code>' + deviceId() + '</code><br>' +
+        ? '<b>云同步已开启</b>。本机同步码：<code>' + syncUid() + '</code><br>' +
           '换手机时，在新手机上点下面「用同步码恢复」，填这段码就能把进度搬过去。'
         : '<b>云同步未开启</b>：进度只存在这台设备上。<br>' +
           '（在 <code>config.js</code> 里填上 Supabase 地址和 key 就能开启）') +
@@ -2986,11 +3112,11 @@ function landing(tab, msg, warn){
   var isLogin = tab === 'login';
   showOverlay(
     '<div class="brand"><div class="logo">星</div><div>' +
-      '<h1 style="margin:0">星火六级闯关</h1>' +
-      '<p style="margin:0">用《超级马里奥》的方式背六级单词</p>' +
+      '<h1 style="margin:0">' + BANK_INFO.brand + '</h1>' +
+      '<p style="margin:0">' + BANK_INFO.sub + '</p>' +
     '</div></div>' +
     '<div class="stat">' +
-      '<div><b>' + WORDS.length + '</b><span>六级词汇</span></div>' +
+      '<div><b>' + WORDS.length + '</b><span>' + BANK_INFO.wordLabel + '</span></div>' +
       '<div><b>' + LEVELS.length + '</b><span>关卡</span></div>' +
       '<div><b>' + CHAPTERS.length + '</b><span>章节</span></div>' +
     '</div>' +
@@ -3291,6 +3417,11 @@ function activationScreen(){
   var settled = false;
   function go(){
     if(settled) return; settled = true;
+    /* 数据都定下来了，这时才切换「按词库分开的进度存档」 */
+    if(BANK === 'cet4' && !bankDataOk){ BANK = 'cet6'; BANK_INFO = BANKS.cet6; bankFallback = true; }
+    applyBankProgress();
+    try{ document.title = BANK_INFO.brand + ' · CET Quest'; }catch(e){}
+    if(bankFallback) toast('四级词库没加载到，先按六级玩（单文件版只有六级）', 'bad', 3000);
     if(CLOUD && CLOUD.requireLogin && !loggedIn()){
       /* 先探一下账号系统建好没有，好在首页上直接把提示写清楚 */
       rpc('login_user', {p_id: '', p_pwd: ''})
