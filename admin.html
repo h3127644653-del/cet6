@@ -87,6 +87,9 @@
   <button class="ghost" id="btnNew">✨ 新建空词库</button>
   <button class="primary" id="btnExport">⬇ 导出 words.json</button>
   <button class="ghost" id="btnBackup">💾 备份全部</button>
+  <input type="password" id="admPass" placeholder="管理口令" autocomplete="new-password"
+         style="width:130px;font-family:inherit;font-size:13px;padding:.45em .6em;border:1px solid #e4e8f2;border-radius:9px">
+  <button class="ghost" id="admForget" title="清除本标签页记住的口令">✕</button>
   <button class="gold" id="btnPublish" title="需要先在 config.js 里填 Supabase">☁ 发布到云</button>
   <button class="ghost" id="btnCodes" title="生成/查看激活码">🔑 激活码</button>
 </header>
@@ -457,36 +460,56 @@ document.addEventListener('drop', function(e){
 var cfg = window.CET6_CONFIG || {};
 var CLOUD_OK = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
 if(!CLOUD_OK) $('btnPublish').disabled = true;
-var ADMIN_KEY = '';
-try{ ADMIN_KEY = localStorage.getItem('cet6-admin-key') || ''; }catch(e){}
+/* 旧版把 service_role 密钥存在浏览器里，现在不用了，顺手清掉 */
+try{ localStorage.removeItem('cet6-admin-key'); }catch(e){}
+
+/* 管理口令：只存在这个标签页里（关掉浏览器就没了），浏览器里不碰数据库密钥 */
+function adminPass(){
+  var el = $('admPass');
+  var p = String(el && el.value || '').trim();
+  if(p){ try{ sessionStorage.setItem('cet6-admin-pass', p); }catch(e){} }
+  return p;
+}
+function adminRpc(fn, body){
+  return fetch(String(cfg.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {'apikey': cfg.supabaseAnonKey, 'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  }).then(function(r){
+    if(r.status === 404) throw new Error('没找到 ' + fn + ' 函数 —— 要先跑新版 supabase-codes.sql');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+$('admForget').onclick = function(){
+  try{ sessionStorage.removeItem('cet6-admin-pass'); }catch(e){}
+  $('admPass').value = '';
+  toast('已清除本标签页记住的口令', 'good');
+};
+try{ $('admPass').value = sessionStorage.getItem('cet6-admin-pass') || ''; }catch(e){}
+function needPass(){
+  var p = adminPass();
+  if(!p){ toast('请先在右上角填「管理口令」（在 supabase-codes.sql 里设的那个）', 'bad'); return ''; }
+  return p;
+}
+function passWrong(msg){
+  try{ sessionStorage.removeItem('cet6-admin-pass'); }catch(e){}
+  toast('❌ ' + (msg || '管理口令不对'), 'bad');
+}
 $('btnPublish').onclick = function(){
   if(!CLOUD_OK){ toast('还没配置 Supabase，先填 config.js', 'bad'); return; }
   if(!S.data){ toast('先载入词库', 'bad'); return; }
-  if(!ADMIN_KEY){
-    ADMIN_KEY = (prompt(
-      '发布词库需要管理员密钥。\n\n' +
-      '在 Supabase 后台：Settings → API → Project API keys → 复制 service_role 那一串。\n\n' +
-      '（它只保存在这台电脑的浏览器里，不会写进网页文件，也不要发给别人）', '') || '').trim();
-    if(!ADMIN_KEY) return;
-    try{ localStorage.setItem('cet6-admin-key', ADMIN_KEY); }catch(e){}
-  }
+  var pass = needPass();
+  if(!pass) return;
   if(!confirm('把当前 ' + S.data.words.length + ' 个词发布到云数据库？\n线上玩家刷新后就会看到新词库。')) return;
-  var url = String(cfg.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/' + (cfg.wordsTable || 'words');
   var rows = S.data.words.map(function(w, i){
     return {w:w.w, ph:w.ph, f:w.f, t:w.t, r:w.r, g:w.g, m:w.m, sort:i};
   });
-  var headers = {
-    'apikey': ADMIN_KEY,
-    'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates,return=minimal'
-  };
-  /* 老版 service_role key 是 JWT；新版 secret key（sb_secret_ 开头）只放 apikey */
-  if(/^eyJ/.test(ADMIN_KEY)) headers['Authorization'] = 'Bearer ' + ADMIN_KEY;
   toast('正在发布…');
-  fetch(url + '?on_conflict=w', {method:'POST', headers:headers, body:JSON.stringify(rows)})
-    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText); })
-    .then(function(){
-      toast('✅ 已发布到云数据库', 'good');
+  adminRpc('admin_publish_words', {p_pass: pass, p_rows: rows})
+    .then(function(r){
+      if(!r || r.ok !== true){ passWrong(r && r.msg); return; }
+      toast('✅ ' + (r.msg || '已发布到云数据库'), 'good');
       if(!cfg.useCloudWords){
         setTimeout(function(){
           if(confirm(
@@ -496,35 +519,10 @@ $('btnPublish').onclick = function(){
         }, 400);
       }
     })
-    .catch(function(e){
-      try{ localStorage.removeItem('cet6-admin-key'); }catch(err){}
-      ADMIN_KEY = '';
-      toast('❌ 发布失败：' + e.message + '（密钥可能不对，请重试）', 'bad');
-    });
+    .catch(function(e){ toast('❌ 发布失败：' + e.message, 'bad'); });
 };
 
 /* ---------------- 激活码管理 ---------------- */
-function adminKey(){
-  if(!ADMIN_KEY){
-    ADMIN_KEY = (prompt(
-      '管理激活码需要管理员密钥。\n\n' +
-      'Supabase → Settings → API Keys → 复制 secret / service_role 那一串。\n\n' +
-      '（只保存在本机浏览器，不会写进网页文件）', '') || '').trim();
-    if(ADMIN_KEY){ try{ localStorage.setItem('cet6-admin-key', ADMIN_KEY); }catch(e){} }
-  }
-  return ADMIN_KEY;
-}
-function codesHeaders(){
-  var h = {'apikey': ADMIN_KEY, 'Content-Type':'application/json'};
-  if(/^eyJ/.test(ADMIN_KEY)) h['Authorization'] = 'Bearer ' + ADMIN_KEY;
-  return h;
-}
-function randCode(){
-  var s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', a = '', b = '';
-  for(var i=0;i<4;i++) a += s[Math.floor(Math.random()*s.length)];
-  for(var j=0;j<4;j++) b += s[Math.floor(Math.random()*s.length)];
-  return 'CET-' + a + '-' + b;      /* 一个码通用六级/四级，所以前缀不写具体级 */
-}
 function showOverlay2(html){
   var el = document.getElementById('overlay2');
   if(!el){
@@ -541,12 +539,13 @@ function showOverlay2(html){
 }
 var CODES = [];
 function loadCodes(){
-  var url = String(cfg.supabaseUrl).replace(/\/+$/,'') + '/rest/v1/' + (cfg.codesTable || 'codes') +
-    '?select=*&order=created_at.desc&limit=1000';
-  fetch(url, {headers: codesHeaders()})
-    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status + '（是不是没跑 supabase-codes.sql？）'); return r.json(); })
-    .then(function(rows){
-      CODES = rows || [];
+  var pass = adminPass();
+  if(!pass){ $('codeList').innerHTML = '<div class="hint">先在上面填「管理口令」，再点刷新。</div>'; return; }
+  $('codeList').innerHTML = '<div class="hint">读取中…</div>';
+  adminRpc('admin_list_codes', {p_pass: pass})
+    .then(function(r){
+      if(!r || r.ok !== true){ passWrong(r && r.msg); $('codeList').innerHTML = '<div class="hint">' + ((r && r.msg) || '读取失败') + '</div>'; return; }
+      CODES = r.rows || [];
       var used = CODES.filter(function(c){ return c.used_by; }).length;
       var html = '<div class="stat" style="margin-bottom:10px">' +
         '<div><b>' + CODES.length + '</b><span>总数</span></div>' +
@@ -555,17 +554,34 @@ function loadCodes(){
       if(!CODES.length){
         html += '<div class="hint">还没有激活码。上面填数量，点「生成」。</div>';
       }else{
-        html += '<table><thead><tr><th>激活码</th><th>备注</th><th>状态</th><th>绑定设备</th><th>激活时间</th></tr></thead><tbody>';
+        html += '<table><thead><tr><th>激活码</th><th>备注</th><th>状态</th><th>绑定账号</th><th>激活时间</th><th></th></tr></thead><tbody>';
         CODES.forEach(function(c){
           html += '<tr><td style="font-weight:800;font-family:ui-monospace,Consolas,monospace">' + c.code + '</td>' +
             '<td>' + (c.note || '') + '</td>' +
             '<td>' + (c.used_by ? '<span class="tag t3">已使用</span>' : '<span class="tag t1">未使用</span>') + '</td>' +
             '<td style="font-size:11px;color:#8a94b4;font-family:ui-monospace,monospace">' + (c.used_by || '') + '</td>' +
-            '<td style="font-size:12px;color:#8a94b4">' + (c.used_at ? String(c.used_at).slice(0,16).replace('T',' ') : '') + '</td></tr>';
+            '<td style="font-size:12px;color:#8a94b4">' + (c.used_at ? String(c.used_at).slice(0,16).replace('T',' ') : '') + '</td>' +
+            '<td>' + (c.used_by ? '<button class="ghost" data-unbind="' + c.code + '" style="padding:.2em .5em;font-size:12px">解除绑定</button>' : '') + '</td></tr>';
         });
         html += '</tbody></table>';
       }
       $('codeList').innerHTML = html;
+      var btns = document.querySelectorAll('#codeList button[data-unbind]');
+      for(var i=0;i<btns.length;i++){
+        (function(b){
+          b.onclick = function(){
+            var code = b.getAttribute('data-unbind');
+            if(!confirm('把 ' + code + ' 解除绑定？\n（买家换了账号时用；解绑后这个码可以重新激活一次）')) return;
+            adminRpc('admin_unbind_code', {p_pass: adminPass(), p_code: code})
+              .then(function(r2){
+                if(!r2 || r2.ok !== true){ passWrong(r2 && r2.msg); return; }
+                toast('✅ ' + (r2.msg || '已解除绑定'), 'good');
+                loadCodes();
+              })
+              .catch(function(e){ toast('❌ ' + e.message, 'bad'); });
+          };
+        })(btns[i]);
+      }
     })
     .catch(function(e){ $('codeList').innerHTML = '<div class="hint">读取失败：' + e.message + '</div>'; });
 }
@@ -580,11 +596,10 @@ function copyUnused(){
 }
 $('btnCodes').onclick = function(){
   if(!CLOUD_OK){ toast('还没配置 Supabase，先填 config.js', 'bad'); return; }
-  if(!adminKey()) return;
   showOverlay2(
     '<h2 style="margin-top:0">🔑 激活码</h2>' +
     '<p style="font-size:13px;color:#5a6484;line-height:1.7">生成后发给付费的同学，他们在激活页输入一次即可。<b>一个码绑定一个账号</b>（换手机登录同一账号仍可用）。<br>' +
-    '用之前记得先在 Supabase 里跑 <code>supabase-codes.sql</code> 建表。</p>' +
+    '第一次用之前：在 Supabase 里跑一遍新版 <code>supabase-codes.sql</code>（里面要设一个管理口令），然后在右上角「管理口令」里填同一个口令。</p>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
       '<input type="number" id="codeN" value="10" min="1" max="500" style="width:90px;font-family:inherit;font-size:14px;padding:.5em .6em;border:1px solid #e4e8f2;border-radius:9px">' +
       '<input type="text" id="codeNote" placeholder="备注（卖给谁，可留空）" style="flex:1;min-width:180px;font-family:inherit;font-size:14px;padding:.5em .6em;border:1px solid #e4e8f2;border-radius:9px">' +
@@ -601,13 +616,15 @@ $('btnCodes').onclick = function(){
   $('codeGen').onclick = function(){
     var n = Math.max(1, Math.min(500, parseInt($('codeN').value, 10) || 10));
     var note = $('codeNote').value.trim();
-    var rows = [];
-    for(var i=0;i<n;i++) rows.push({code: randCode(), note: note});
+    var pass = needPass();
+    if(!pass) return;
     toast('正在生成 ' + n + ' 个…');
-    fetch(String(cfg.supabaseUrl).replace(/\/+$/,'') + '/rest/v1/' + (cfg.codesTable || 'codes'),
-      {method:'POST', headers: Object.assign(codesHeaders(), {'Prefer':'return=minimal'}), body: JSON.stringify(rows)})
-      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); })
-      .then(function(){ toast('✅ 已生成 ' + n + ' 个激活码', 'good'); loadCodes(); })
+    adminRpc('admin_gen_codes', {p_pass: pass, p_n: n, p_note: note})
+      .then(function(r){
+        if(!r || r.ok !== true){ passWrong(r && r.msg); return; }
+        toast('✅ ' + (r.msg || ('已生成 ' + n + ' 个激活码')), 'good');
+        loadCodes();
+      })
       .catch(function(e){ toast('❌ 生成失败：' + e.message, 'bad'); });
   };
   loadCodes();
