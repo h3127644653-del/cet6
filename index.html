@@ -17,7 +17,7 @@
 <meta name="x5-page-mode" content="app">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
-<title>星火六级闯关 · CET-6 Quest</title>
+<title>四六级闯关 · Quest</title>
 <!-- GitHub Pages 部署版：index.html + manifest.webmanifest -->
 <style>
   :root{
@@ -355,9 +355,11 @@ window.CET6_CONFIG = {
              都要从云数据库下载整份词表，比较费免费额度） */
   useCloudWords: false,
   /* 是否要求输入激活码才能玩：
-     false = 任何人打开就能玩（现在这样）
+     false = 任何人打开就能玩
      true  = 必须先输入你卖出去的激活码（记得先跑 supabase-codes.sql） */
-  requireCode: false,
+  requireCode: true,
+  /* 没激活时，激活页上显示的购买方式（改成你自己的收款联系方式） */
+  buyInfo: '购买激活码：加微信 <b>H-July10-Cancer</b>（一个码一个账号，六级+四级都能玩；换手机登录同一账号可继续用）',
   /* 是否要求先注册/登录账号才能玩：
      true  = 打开先看到首页，登录/注册后才能进游戏（记得先跑 supabase-users.sql）
      false = 直接进游戏；登录入口放在主菜单里 */
@@ -370,7 +372,7 @@ window.CET6_CONFIG = {
 <script>
 /* 以下内容由 build-single.js 自动内联，请勿手工编辑；要改请改 words.js / game.js 后重新运行 node build-single.js */
 /**
- * 星火六级闯关 · 词库（自动生成，也可以直接用 admin.html 编辑后导出覆盖）
+ * 四六级闯关 · 词库（自动生成，也可以直接用 admin.html 编辑后导出覆盖）
  * 共 2140 词 · 每关 20 词 · 每 10 关一章
  * t: 1=易 2=中 3=难   f: 原文考频   r: COCA 词频排名（越小越常见）
  * ph: 音标   g: 方块上的短释义   m: 完整释义
@@ -386,7 +388,7 @@ return {"version":3,"updated":"2026-10-11","source":"《大学英语六级词汇
 <script>
 /* 以下内容由 build-single.js 自动内联，请勿手工编辑；要改请改 words.js / game.js 后重新运行 node build-single.js */
 /* =====================================================================
-   星火六级闯关 · CET-6 Quest  （Canvas 2D，无外部依赖）
+   四六级闯关 · CET-6 Quest  （Canvas 2D，无外部依赖）
    Mario 式横版闯关 + 单词答题门：
      顶部给出单词 → 跳起来撞出正确的释义方块 → 吃蘑菇变大 / 吃星星无敌
      → 踩怪、撞问号砖、收金币 → 滑下旗杆通关
@@ -397,9 +399,9 @@ return {"version":3,"updated":"2026-10-11","source":"《大学英语六级词汇
 
 /* ---------------- 词库：六级 / 四级（菜单里可切换） ---------------- */
 var BANKS = {
-  cet6: {id:'cet6', name:'六级', brand:'星火六级闯关', sub:'用《超级马里奥》的方式背六级单词',
+  cet6: {id:'cet6', name:'六级', brand:'四六级闯关', sub:'用《超级马里奥》的方式背六级单词',
          dataFile:'words.json', src:'《大学英语六级词汇乱序版》', wordLabel:'六级词'},
-  cet4: {id:'cet4', name:'四级', brand:'星火四级闯关', sub:'用《超级马里奥》的方式背四级单词',
+  cet4: {id:'cet4', name:'四级', brand:'四六级闯关', sub:'用《超级马里奥》的方式背四级单词',
          dataFile:'cet4-words.json', src:'《大学英语四级词汇带音标-乱序版》', wordLabel:'四级词'}
 };
 var BANK = (function(){
@@ -419,7 +421,7 @@ var CH_SIZE = D.chapterSize || D.CHAPTER_SIZE || 10;
 var THEME_ORDER = ['grass','canyon','cave','cloud','lava','peak','ocean','factory','ice','castle'];
 var THEME_NAME = {
   grass:'蘑菇平原', canyon:'回音峡谷', cave:'幽光洞窟', cloud:'云端阶梯', lava:'熔岩遗迹',
-  peak:'星火之巅', ocean:'碧海长廊', factory:'机械工厂', ice:'极地冰原', castle:'终焉城堡'
+  peak:'巅峰之路', ocean:'碧海长廊', factory:'机械工厂', ice:'极地冰原', castle:'终焉城堡'
 };
 var ROMAN = ['','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV'];
 var THEMES = {
@@ -705,10 +707,10 @@ function applyBankProgress(){
       /* 但玩家选的是四级：把老进度收进六级名下，四级从零开始 */
       save.banks['cet6'] = {
         unlocked:save.unlocked, stars:save.stars, best:save.best,
-        wrongBook:save.wrongBook, coins:save.coins, activated:save.activated
+        wrongBook:save.wrongBook, coins:save.coins
       };
       save.unlocked = 1; save.stars = {}; save.best = {}; save.wrongBook = {};
-      save.coins = 0; save.activated = false;
+      save.coins = 0;
     }
     save.persist();
     return;
@@ -716,7 +718,7 @@ function applyBankProgress(){
   if(save.curBank){
     save.banks[save.curBank] = {
       unlocked:save.unlocked, stars:save.stars, best:save.best,
-      wrongBook:save.wrongBook, coins:save.coins, activated:save.activated
+      wrongBook:save.wrongBook, coins:save.coins
     };
   }
   var b = save.banks[BANK];
@@ -726,10 +728,9 @@ function applyBankProgress(){
     save.best = b.best || {};
     save.wrongBook = b.wrongBook || {};
     save.coins = (typeof b.coins === 'number') ? b.coins : 0;
-    save.activated = b.activated === true;
   }else{
     save.unlocked = 1; save.stars = {}; save.best = {}; save.wrongBook = {};
-    save.coins = 0; save.activated = false;
+    save.coins = 0;
   }
   save.curBank = BANK;
   save.persist();
@@ -1722,7 +1723,7 @@ function bumpQBlock(q){
   if(q.item){
     spawnItem(q.item, q.x + 4, q.y - 34);
     SFX.power();
-    toast(q.item === 'star' ? '⭐ 星火出现！吃了它短时间无敌' : '🍄 星火菇出现！吃了它变大', 'good', 1800);
+    toast(q.item === 'star' ? '⭐ 无敌星出现！吃了它短时间无敌' : '🍄 变大菇出现！吃了它变大', 'good', 1800);
   }else{
     G.coinsRun++; G.score += 20;
     renderStats();
@@ -2559,7 +2560,7 @@ function menu(){
   var nxt = nextLevelIndex();
   var nxtDef = LEVELS[nxt] || {unit:'1-1', name:''};
   showOverlay(
-    '<div class="brand"><div class="logo">星</div><div>' +
+    '<div class="brand"><div class="logo">闯</div><div>' +
       '<h1 style="margin:0">' + BANK_INFO.brand + '</h1>' +
       '<p style="margin:0">CET Quest · ' + WORDS.length + ' 个' + BANK_INFO.wordLabel + ' · ' + LEVELS.length + ' 关 · 手机可玩</p>' +
     '</div></div>' +
@@ -3111,7 +3112,7 @@ function landing(tab, msg, warn){
   tab = tab || 'login';
   var isLogin = tab === 'login';
   showOverlay(
-    '<div class="brand"><div class="logo">星</div><div>' +
+    '<div class="brand"><div class="logo">闯</div><div>' +
       '<h1 style="margin:0">' + BANK_INFO.brand + '</h1>' +
       '<p style="margin:0">' + BANK_INFO.sub + '</p>' +
     '</div></div>' +
@@ -3200,7 +3201,7 @@ function landing(tab, msg, warn){
     var el = $(x);
     if(el) el.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); submit(); } });
   });
-  if($('auGuest')) $('auGuest').onclick = function(){ toast('游客模式：进度只存在这台设备上', null, 2000); bootUI(); };
+  if($('auGuest')) $('auGuest').onclick = function(){ toast('游客模式：进度只存在这台设备上', null, 2000); enterGame(); };
 }
 
 function afterAuth(r, hello){
@@ -3212,8 +3213,8 @@ function afterAuth(r, hello){
   /* 云端有这个账号的进度就用云端的；没有就把本机的推上去 */
   cloudPull().then(function(got){
     if(!got) cloudPush();
-    setTimeout(function(){ bootUI(); }, 260);
-  }).catch(function(){ bootUI(); });
+    setTimeout(function(){ enterGame(); }, 260);
+  }).catch(function(){ enterGame(); });
 }
 
 /* 注册成功 → 展示找回码（只显示这一次） */
@@ -3244,8 +3245,8 @@ function showRecovery(code, hello){
     }catch(e){ window.prompt('手动复制这串找回码：', code); }
   };
   $('rcGo').onclick = function(){
-    cloudPull().then(function(got){ if(!got) cloudPush(); setTimeout(bootUI, 200); })
-      .catch(function(){ bootUI(); });
+    cloudPull().then(function(got){ if(!got) cloudPush(); setTimeout(enterGame, 200); })
+      .catch(function(){ enterGame(); });
   };
 }
 
@@ -3368,6 +3369,57 @@ function logout(){
 function needActivation(){
   return !!(CLOUD && CLOUD.requireCode) && save.activated !== true;
 }
+/* 激活记在谁头上：登录了就记账号（换手机登录同一账号即可继续用），没登录才记设备 */
+function payUid(){
+  return (save.auth && save.auth.uid) ? save.auth.uid : deviceId();
+}
+/* 进游戏统一走这里：要收费就每次开都问一下服务器 */
+function enterGame(){
+  if(!(CLOUD && CLOUD.requireCode)){ bootUI(); return; }
+  verifyActivation();
+}
+function verifyActivation(){
+  function ask(){
+    return fetchJson(CLOUD_URL + '/rest/v1/rpc/check_activated', {
+      method: 'POST',
+      headers: cloudHeaders(),
+      body: JSON.stringify({p_uid: payUid()})
+    }).then(function(r){ return !!(r && (r.activated === true || r.activated === 'true')); });
+  }
+  /* 本机记着已激活：先放行进游戏，后台再跟服务器核一遍；
+     服务器说没付钱（有人改了 localStorage）就把他请回激活页。离线时按本机记录继续玩。 */
+  if(save.activated === true){
+    bootUI();
+    try{
+      ask().then(function(ok){
+        if(!ok){ save.activated = false; save.persist(); activationScreen(); toast('激活状态已失效，请重新激活', 'bad', 2800); }
+      }).catch(function(){});
+    }catch(e){}
+    return;
+  }
+  /* 本机没有激活记录：先给个加载态，等服务器回答（可能是换手机/清了缓存的老用户） */
+  showChecking();
+  var settled = false;
+  function done(ok){
+    if(settled) return; settled = true;
+    save.activated = !!ok; save.persist();
+    if(ok) bootUI(); else activationScreen();
+  }
+  var timer = setTimeout(function(){ done(save.activated === true); }, 6000);   /* 网络太慢就别干等 */
+  try{
+    ask().then(function(ok){ clearTimeout(timer); done(ok); })
+       .catch(function(){ clearTimeout(timer); done(save.activated === true); });
+  }catch(e){ clearTimeout(timer); done(save.activated === true); }
+}
+function showChecking(){
+  G.state = 'checking';
+  showOverlay(
+    '<div class="brand"><div class="logo">🔒</div><div>' +
+      '<h1 style="margin:0">' + BANK_INFO.brand + '</h1>' +
+      '<p style="margin:0">正在校验激活状态…</p>' +
+    '</div></div>'
+  );
+}
 function activationScreen(){
   G.state = 'locked';
   showOverlay(
@@ -3375,14 +3427,15 @@ function activationScreen(){
       '<h1 style="margin:0">欢迎使用</h1>' +
       '<p style="margin:0">请输入激活码开始学习</p>' +
     '</div></div>' +
-    '<p>激活码与设备绑定，一台设备用一个码。换设备请联系管理员。</p>' +
-    '<input class="spellInput" id="codeInput" placeholder="CET6-XXXX-XXXX" ' +
+    '<p>激活码跟你的<b>账号</b>绑定：换个手机登录同一账号就能继续用。</p>' +
+    (CLOUD && CLOUD.buyInfo ? '<div class="hint" style="background:#fff7e6;border-color:#ffd7a1;color:#8a5a00">' + CLOUD.buyInfo + '</div>' : '') +
+    '<input class="spellInput" id="codeInput" placeholder="CET-XXXX-XXXX" ' +
       'autocomplete="off" autocorrect="off" spellcheck="false">' +
     '<div id="codeFb" style="text-align:center;font-weight:800;min-height:1.6em;margin-top:.5em"></div>' +
     '<div class="btnRow" style="justify-content:center">' +
       '<button class="btn gold" id="codeGo">激活</button>' +
     '</div>' +
-    '<div class="hint">还没有激活码？请联系管理员购买。激活后进度会自动云同步，换手机可用同步码迁移。</div>'
+    '<div class="hint">还没有激活码？按上面的方式购买后再回来激活。激活后进度会自动云同步，换手机可用同步码迁移。</div>'
   );
   var inp = $('codeInput');
   try{ inp.focus(); }catch(e){}
@@ -3395,12 +3448,12 @@ function activationScreen(){
     fetchJson(CLOUD_URL + '/rest/v1/rpc/redeem_code', {
       method: 'POST',
       headers: cloudHeaders(),
-      body: JSON.stringify({p_code: code, p_uid: deviceId()})
+      body: JSON.stringify({p_code: code, p_uid: payUid()})
     }).then(function(r){
       if(r && (r.ok === true || r.ok === 'true')){
         save.activated = true; save.persist();
         fb.className = 'spellOk'; fb.textContent = '✅ 激活成功，正在进入游戏…';
-        setTimeout(function(){ bootUI(); }, 600);
+        setTimeout(function(){ enterGame(); }, 600);
       }else{
         fb.className = 'spellNo';
         fb.textContent = '❌ ' + ((r && r.msg) || '激活失败，请核对激活码');
@@ -3434,8 +3487,7 @@ function activationScreen(){
         });
       return;
     }
-    else if(needActivation()) activationScreen();
-    else bootUI();
+    else enterGame();
   }
   if(!/^https?:/.test(location.protocol)){ go(); return; }
   setTimeout(go, 3000);                       /* 网络慢也不卡住 */

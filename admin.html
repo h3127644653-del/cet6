@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>词库管理 · 星火六级闯关</title>
+<title>词库管理 · 四六级闯关</title>
 <style>
   :root{
     --ink:#101733; --ink2:#5a6484; --line:#e4e8f2; --blue:#3f7cf3;
@@ -78,7 +78,7 @@
 
 <header>
   <div>
-    <h1>词库管理 · 星火六级闯关</h1>
+    <h1>词库管理 · 四六级闯关</h1>
     <div class="sub">改完导出 words.json，上传覆盖到游戏目录即可（不用改代码）</div>
   </div>
   <div class="grow"></div>
@@ -521,7 +521,7 @@ function randCode(){
   var s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', a = '', b = '';
   for(var i=0;i<4;i++) a += s[Math.floor(Math.random()*s.length)];
   for(var j=0;j<4;j++) b += s[Math.floor(Math.random()*s.length)];
-  return 'CET6-' + a + '-' + b;
+  return 'CET-' + a + '-' + b;      /* 一个码通用六级/四级，所以前缀不写具体级 */
 }
 function showOverlay2(html){
   var el = document.getElementById('overlay2');
