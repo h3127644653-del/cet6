@@ -63,8 +63,10 @@
   #question{flex:1;display:flex;justify-content:center;min-width:0}
   #qcard{
     background:rgba(255,255,255,.96);border-radius:16px;padding:.42em .8em;
-    box-shadow:var(--shadow);display:flex;align-items:center;gap:.6em;max-width:min(66vw,720px);flex-wrap:wrap
+    box-shadow:var(--shadow);display:flex;align-items:center;gap:.6em;max-width:min(66vw,720px);flex-wrap:wrap;
+    pointer-events:auto;cursor:pointer;transition:transform .12s;   /* 整张卡片可点：点一下读单词 */
   }
+  #qcard:active{transform:scale(.98)}
   #qmain{min-width:0}
   #qline{display:flex;align-items:baseline;gap:.4em;flex-wrap:wrap}
   #qword{font-weight:900;font-size:clamp(15px,1.9vw,28px);color:#16204a;letter-spacing:.01em}
@@ -91,6 +93,9 @@
   }
   .icoBtn:hover{background:#dfe7f8}
   .icoBtn.off{opacity:.42}
+  /* 卡片上的发音键：单独高亮，别让人找不到 */
+  #btnSpeak{background:#e6f0ff;box-shadow:inset 0 0 0 1px #c8dcff}
+  #btnSpeak:hover{background:#d9e8ff}
   #hudRight{display:flex;gap:.4em;align-items:center}
   /* 窄屏（手机）：状态栏一行 */
   @media (max-width:820px){
@@ -793,16 +798,65 @@ var SFX = {
   fail:   function(){ melody([420,330,260,180],140,'sawtooth',0.06); },
   die:    function(){ glide(600, 120, 0.6, 'triangle', 0.07); }
 };
-function speak(text){
-  if(!save.voice || !text || !('speechSynthesis' in window)) return;
+/* ---------------- 单词发音 ----------------
+   微信内置浏览器（X5 内核）很多机器没有 speechSynthesis，或者调了没声音，
+   所以点「朗读」按钮时优先用在线发音（有声音、口音稳定），失败再退回系统朗读。
+   自动朗读（答对那一下）仍然走系统朗读，省流量。 */
+var voiceEl = null;
+var TTS_BASE = 'https://dict.youdao.com/dictvoice?type=2&audio=';
+
+function speakNative(text){
+  if(!('speechSynthesis' in window)) return false;
   try{
     window.speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-US'; u.rate = 0.9; u.pitch = 1.05;
-    var vs = window.speechSynthesis.getVoices();
+    var vs = window.speechSynthesis.getVoices() || [];
     for(var i=0;i<vs.length;i++){ if(/^en/i.test(vs[i].lang)){ u.voice = vs[i]; break; } }
     window.speechSynthesis.speak(u);
-  }catch(e){}
+    return true;
+  }catch(e){ return false; }
+}
+
+/* 在线发音（有道词典的公开语音接口，只把单词本身发出去） */
+function speakOnline(text, done){
+  var word = String(text || '').trim();
+  if(!word){ if(done) done(false); return; }
+  try{
+    if(!voiceEl){
+      voiceEl = new Audio();
+      voiceEl.preload = 'auto';
+      voiceEl.setAttribute('playsinline', '');
+    }
+    voiceEl.onerror = function(){ if(done) done(false); };
+    voiceEl.src = TTS_BASE + encodeURIComponent(word);
+    var p = voiceEl.play();
+    if(p && p.then){
+      p.then(function(){ if(done) done(true); })
+       .catch(function(){ if(done) done(false); });
+    }else if(done) done(true);
+  }catch(e){ if(done) done(false); }
+}
+
+/* 用户主动点「朗读」：一定要出声，先在线、再系统 */
+function speakTap(text){
+  var word = String(text || '').trim();
+  if(!word) return;
+  if(!save.voice){ save.voice = true; save.persist(); }     /* 主动点朗读 = 想听，顺手打开开关 */
+  if(!('speechSynthesis' in window)){                       /* 没系统朗读就直接在线 */
+    speakOnline(word, function(ok){ if(!ok) toast('朗读没声音，检查一下网络再点一次', 'bad', 2200); });
+    return;
+  }
+  speakOnline(word, function(ok){
+    if(!ok && !speakNative(word)) toast('这台设备暂时读不出来，检查一下网络再点一次', 'bad', 2200);
+  });
+}
+
+/* 自动朗读（答对/进入关卡时）：系统朗读优先，没有就退回在线 */
+function speak(text){
+  if(!save.voice || !text) return;
+  if(speakNative(text)) return;
+  speakOnline(text);
 }
 
 /* ============================ 画布 ============================ */
@@ -1300,7 +1354,7 @@ function wordRow(w, extra, cls){
 function bindSpeak(root){
   var bs = (root||document).querySelectorAll('[data-say]');
   for(var i=0;i<bs.length;i++){
-    bs[i].onclick = (function(b){ return function(){ speak(b.getAttribute('data-say')); }; })(bs[i]);
+    bs[i].onclick = (function(b){ return function(){ speakTap(b.getAttribute('data-say')); }; })(bs[i]);
   }
 }
 
@@ -1339,6 +1393,13 @@ function startLevel(levelIndex){
   var def = LEVELS[levelIndex];
   if(!def) return;
   maybeFullscreen();
+  /* 第一次进关提示一次：整张单词卡片可以点，听发音 */
+  try{
+    if(!localStorage.getItem('cet6quest.sayTip')){
+      localStorage.setItem('cet6quest.sayTip', '1');
+      setTimeout(function(){ toast('💡 点上面的单词卡片（或右边的 🔊）就能听发音', null, 3200); }, 1200);
+    }
+  }catch(e){}
   prepareRun(levelIndex, WORDS.slice(def.from, def.to), null);
 }
 function startWrongDrill(){
@@ -1501,7 +1562,7 @@ function renderSpell(){
   });
   $('spCheck').onclick = checkSpell;
   $('spHint').onclick = revealSpellHint;
-  $('spSay').onclick = function(){ speak(w.w); };
+  $('spSay').onclick = function(){ speakTap(w.w); };
   $('spSkip').onclick = function(){ settleSpell(false, true); };
   $('spQuit').onclick = function(){ SP.i = SP.list.length; finishSpelling(); };
   if(SP.revealed) revealSpellHint();
@@ -3050,7 +3111,13 @@ $('btnPause').onclick = function(){
 };
 $('btnSpeak').onclick = function(){
   var lv = G.lv;
-  if(lv && lv.gates[G.activeGate]) speak(lv.gates[G.activeGate].word.w);
+  if(lv && lv.gates[G.activeGate]) speakTap(lv.gates[G.activeGate].word.w);
+};
+/* 整张单词卡片也能点：手机上一眼就知道"点这里听发音" */
+$('qcard').onclick = function(e){
+  if(e && e.target && e.target.closest && e.target.closest('button')) return;   /* 点 🔊 时不重复 */
+  var lv = G.lv;
+  if(lv && lv.gates[G.activeGate]) speakTap(lv.gates[G.activeGate].word.w);
 };
 $('btnFull').onclick = toggleFullscreen;
 $('wxbarX').onclick = function(){
