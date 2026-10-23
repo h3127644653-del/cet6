@@ -1187,32 +1187,60 @@ function buildLevel(levelIndex, words, seed){
     decor.push({x:gateX + 10.5*TILE + R()*3*TILE, s:0.7+R()*0.45, k:th.deco});
   }
 
-  /* --- 敌人：数量与种类都随关卡难度递增（前两关一只都没有） --- */
+  /* --- 敌人：数量与种类都随关卡难度递增（前两关一只都没有） ---
+     位置规则（很关键）：怪兽只能站在「本门答题方块右边」到「下一门答题方块左边」
+     这段空地里，连来回巡逻的范围也不许伸进方块下面 ——
+     否则玩家跳起来撞释义时会被怪挡路 / 撞掉血，看起来就像"卡关"。 */
   var maxEnemies = Math.round(ramp * 9);
   var placed = 0;
+  var BLOCK_EDGE = 150 + QW/2;      /* 答题方块横向半径（相对门中心），= 212px */
+  var ENEMY_PAD = 2.0 * TILE;       /* 方块外再留 2 格：够玩家起跳和落地 */
+  function blockFreeX(x0, x1){
+    for(var gi=0; gi<n; gi++){
+      var gg = startX + gi*GATE_SP;
+      if(x1 > gg - BLOCK_EDGE - ENEMY_PAD && x0 < gg + BLOCK_EDGE + ENEMY_PAD) return false;
+    }
+    return true;
+  }
+  function solidFreeX(x0, x1){
+    for(var si=0; si<solids.length; si++){
+      var so = solids[si];
+      if(so.type === 'ground') continue;
+      if(x1 > so.x && x0 < so.x + so.w) return false;   /* 管子/平台/台阶挡着 */
+    }
+    return true;
+  }
   for(var e=0;e<n && placed<maxEnemies;e++){
     var roll2 = R();
     if(roll2 > 0.72 * ramp) continue;
-    /* 关键：敌人必须远离答题门，否则玩家跳起来答题时会被撞 */
-    var gateX = startX + e*GATE_SP;
-    var eLo = gateX + 4.3*TILE, eHi = gateX + 11.4*TILE;
-    var ex = eLo + R()*(eHi - eLo);
-    var sg4 = segOf(ex);
+    if(pitGap[e]) continue;                  /* 这一格是坑，别再叠一只怪 */
+    var gx = startX + e*GATE_SP;
+    var eLo = gx + BLOCK_EDGE + ENEMY_PAD;                 /* 本门方块右缘再留 2 格 */
+    var eHi = gx + GATE_SP - BLOCK_EDGE - ENEMY_PAD;       /* 下一门方块左缘再留 2 格 */
+    var sg4 = segOf((eLo + eHi) / 2);
     var a = Math.max(eLo, sg4[0] + 1.2*TILE);
     var b = Math.min(eHi, sg4[1] - 1.8*TILE);
     if(b - a < 1.6*TILE) continue;
-    ex = clamp(ex, a, b);
-    var half = Math.max(0.7*TILE, Math.min(2.2*TILE, (b - a)/2));
+    if(!blockFreeX(a, b) || !solidFreeX(a, b)) continue;
+    var EW = 42;                              /* 怪的身体宽度（保守取最大那种） */
+    if(b - a < EW + 0.8*TILE) continue;       /* 连身体都放不下，就别硬塞 */
+    /* 初始位置只取「身体不越界」的范围，巡逻幅度再受左右边界约束，
+       保证整只怪（含巡逻）永远待在这段空档里，绝不探到方块下面。 */
+    var ex = a + R()*((b - a) - EW);
+    var maxHalf = Math.min(ex - a, (b - EW) - ex);
+    var half = Math.max(0, Math.min(2.2*TILE, maxHalf));
+    var ex0 = ex - half;
+    var ex1 = ex + half;
     if(roll2 < 0.13 * ramp){                /* 飞行怪（后面才出现） */
       enemies.push({kind:'fly', x:ex, y:GROUND_Y-4.2*TILE, w:40, h:36,
         baseY:GROUND_Y-4.2*TILE, amp:34+R()*26, ph:R()*6.3, vx:52*(R()<0.5?-1:1),
-        x0:Math.max(a, ex-half), x1:Math.min(b, ex+half), alive:true, t:R()*6});
+        x0:ex0, x1:ex1, alive:true, t:R()*6});
     }else if(roll2 < 0.24 * ramp){          /* 带刺怪，不能踩（更后面才出现） */
       enemies.push({kind:'spike', x:ex, y:GROUND_Y-42, w:42, h:42, vx:60*(R()<0.5?-1:1),
-        x0:Math.max(a, ex-half), x1:Math.min(b, ex+half), alive:true, t:R()*6});
+        x0:ex0, x1:ex1, alive:true, t:R()*6});
     }else{                                  /* 普通走地怪 */
       enemies.push({kind:'walker', x:ex, y:GROUND_Y-42, w:42, h:42, vx:78*(R()<0.5?-1:1),
-        x0:Math.max(a, ex-half), x1:Math.min(b, ex+half), alive:true, t:R()*6});
+        x0:ex0, x1:ex1, alive:true, t:R()*6});
     }
     placed++;
   }
@@ -3595,6 +3623,21 @@ window.CET6_DEBUG = {
     G.player.x = x; G.player.y = GROUND_Y - 120;
     G.player.vx = 0; G.player.vy = 0;
     G.cam = Math.max(0, x - VW*0.38);
+    return true;
+  },
+  /* 测试/截图用：直接跳到第 i 道题（0 起），前面的门标成已完成 */
+  setGate: function(i){
+    if(!G.lv || !G.lv.gates.length) return false;
+    i = Math.max(0, Math.min(G.lv.gates.length - 1, i | 0));
+    for(var k=0;k<G.lv.gates.length;k++){
+      G.lv.gates[k].state = (k < i) ? 'done' : (k === i ? 'active' : 'locked');
+      if(k === i){
+        for(var j=0;j<G.lv.gates[k].blocks.length;j++) G.lv.gates[k].blocks[j].state = 'active';
+      }
+    }
+    G.activeGate = i;
+    G.checkpoint = G.lv.gates[i].x - 3*TILE;
+    updateQuestion();
     return true;
   }
 };
